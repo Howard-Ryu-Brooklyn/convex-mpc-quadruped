@@ -1,0 +1,15 @@
+# Python 캐시
+__pycache__/
+*.pyc
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# Mac 시스템 파일
+.DS_Store
+
+# 시뮬레이션 로그 및 결과 데이터
+*.log
+results/
