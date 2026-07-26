@@ -1,0 +1,37 @@
+<mxfile host="65bd71144e">
+    <diagram id="k-oBLWcyc5STfSA8KjC6" name="Page-1">
+        <mxGraphModel dx="364" dy="416" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="400" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="A" value="&lt;b&gt;동역학 단순화 및 수학적 모델링&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=14;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="100" width="110" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="B" value="&lt;b&gt;Step 1: 오픈소스 기반 MPC 및 시각화 구현&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="100" width="140" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="C" value="&lt;b&gt;Step 2: MPC 수식 유도 및 QP 행렬 직접 설계&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="670" y="100" width="150" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="D" value="&lt;b&gt;Step 3: QP Solver 연동 및 힘 최적화 구현&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="870" y="100" width="140" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="E" value="&lt;b&gt;Future Work: Gait Scheduler &amp;amp; 토크 제어 구현&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;strokeDasharray=5 5;fontSize=14;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="100" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#4c6ef5;" parent="1" source="A" target="B" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#4c6ef5;" parent="1" source="B" target="C" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#4c6ef5;" parent="1" source="C" target="D" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#d6b656;strokeDasharray=5 5;" parent="1" source="D" target="E" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -1,0 +1,39 @@
+<mxfile host="65bd71144e">
+    <diagram name="Page-1" id="2enVf3Dk7XzZNDXvDwzt">
+        <mxGraphModel dx="419" dy="252" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="1" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="Z-axis MPC Loop (Gait Scheduler Disabled, Full Stance)" style="swimlane;whiteSpace=wrap;html=1;fontStyle=1;startSize=23;dashed=1;fillColor=none;strokeColor=#aaaaaa;fontSize=12;align=left;spacingLeft=10;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="740" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="3" value="[Input] Reference Trajectory&lt;br&gt;목표 궤적: \( \mathbf{x}_{ref} \)&lt;div&gt;- Z-axis: Desired Height (Sine Wave)&lt;br&gt;- Others (X, Y, Orientation): Fixed to 0&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11;" parent="2" vertex="1">
+                    <mxGeometry x="30" y="60" width="210" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="4" value="Convex MPC Controller&lt;br&gt;&lt;br&gt;$$\min_{\mathbf{U}} \frac{1}{2} \mathbf{U}^\top \mathbf{H} \mathbf{U} + \mathbf{U}^\top \mathbf{g}$$&lt;div&gt;&lt;font color=&quot;#000000&quot;&gt;&lt;br&gt;&lt;/font&gt;- Contact State: Full Stance Fixed&lt;br&gt;- Call QP Solver -&amp;gt; Optimal GRF Allocation&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;fontSize=11;" parent="2" vertex="1">
+                    <mxGeometry x="300" y="60" width="180" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="5" value="Robot Plant / Dynamics&lt;br&gt;&lt;br&gt;- Simulator or Real Robot Dynamics&lt;br&gt;- Computes Next States via GRF \( \mathbf{f} \)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;fontSize=11;" parent="2" vertex="1">
+                    <mxGeometry x="540" y="60" width="170" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="6" value="State Estimator / Feedback&#xa;&#xa;- Processes IMU / Leg Kinematics&#xa;- Estimates Current Robot State (x_k)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11;" parent="2" vertex="1">
+                    <mxGeometry x="300" y="180" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="7" value="$$x_{ref}$$ (Z-axis Desired)" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;verticalAlign=bottom;" parent="2" source="3" target="4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="8" value="f (Optimal GRF)" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;verticalAlign=bottom;" parent="2" source="4" target="5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="9" value="Sensor Data (IMU/Kinematics)" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;verticalAlign=bottom;" parent="2" source="5" target="6" edge="1">
+                    <mxGeometry x="0.0024" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="10" value="State x_k (Feedback)" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;fontSize=10;verticalAlign=right;" parent="2" source="6" target="4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
