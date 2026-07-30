@@ -25,7 +25,7 @@ class ConvexMPC:
         self.solver_initialized = False
 
         # --- 마찰 원뿔(Friction Cone) 제약조건 행렬 미리 구성 ---
-        self.C_mat, self.u_min, self.u_max = self._build_friction_cone()
+        
 
     @staticmethod
     def skew_symmetric(v):
@@ -49,7 +49,7 @@ class ConvexMPC:
         weights[12] = 0.0
         return weights
     
-    def _build_friction_cone(self):
+    def _build_friction_cone(self, contact_sequence):
         """ 완벽한 피라미드 마찰 원뿔 제약조건 생성 """
         # fmin <= fz <= fmax
         # -µfz <= fx <= µfz
@@ -59,6 +59,7 @@ class ConvexMPC:
         # -fx - µfz <= 0
         # fy - µfz <= 0
         # -fy - µfz <= 0
+        
         C_leg = np.array([
             [ 1,  0, -self.mu], 
             [-1,  0, -self.mu], 
@@ -71,11 +72,32 @@ class ConvexMPC:
         C_total = np.kron(np.eye(self.k), C_step) # 5nk X 3nk
         # U \in R^(3nk x 1)
         
-        u_max_leg = np.array([0, 0, 0, 0, self.fmax]) # 5 X 1
-        u_min_leg = np.array([-np.inf, -np.inf, -np.inf, -np.inf, self.fmin])
+        # u_max_leg = np.array([0, 0, 0, 0, self.fmax]) # 5 X 1
+        # u_min_leg = np.array([-np.inf, -np.inf, -np.inf, -np.inf, self.fmin])
         
-        u_max = np.tile(u_max_leg, 4 * self.k) # 5nk X 1
-        u_min = np.tile(u_min_leg, 4 * self.k)
+        # u_max = np.tile(u_max_leg, 4 * self.k) # 5nk X 1
+        # u_min = np.tile(u_min_leg, 4 * self.k)
+
+        # 2. 수학적 스위치 생성 (AIR: 1 -> Stance: 0 / GROUND: 0 -> Stance: 1)
+        stance_flags = 1.0 - contact_sequence  # shape: (4, k)
+        
+        # 3. 빈 Bound 배열 생성 (k스텝, 4다리, 5개 제약조건)
+        # 나중에 flatten()으로 1차원 벡터로 쫙 펼칠 예정입니다.
+        u_max_3d = np.zeros((self.k, 4, 5))
+        u_min_3d = np.full((self.k, 4, 5), -np.inf) # 기본값을 -inf로 채움
+        
+        # 4. Vectorized Bounds 할당 (for문 없이 한 번에 계산)
+        # 4-1. 마찰 원뿔 조건 (0~3번째 행): 항상 상한은 0, 하한은 -inf
+        u_max_3d[:, :, 0:4] = 0.0
+        
+        # 4-2. Z축 수직 항력 조건 (4번째 행): Stance Flag를 곱해서 공중이면 0으로 강제
+        # stance_flags.T 는 shape이 (k, 4)가 됩니다.
+        u_max_3d[:, :, 4] = self.fmax * stance_flags.T
+        u_min_3d[:, :, 4] = self.fmin * stance_flags.T
+        
+        # 5. QP 솔버에 넣기 위해 1차원 벡터로 변환
+        u_max = u_max_3d.flatten()
+        u_min = u_min_3d.flatten()
         
         # Sparse한 행렬의 0이 아닌 부분만 메모리에 저장
         return sparse.csc_matrix(C_total), u_min, u_max
@@ -136,8 +158,9 @@ class ConvexMPC:
 
         return Aqp, Bqp
 
-    def solve(self, x0, x_ref_traj, yaw_traj, r_feet_traj):
+    def solve(self, x0, x_ref_traj, yaw_traj, r_feet_traj, contact_sequence):
         """ 메인 제어 함수 """
+        C_mat, u_min, u_max = self._build_friction_cone(contact_sequence)
         Ad_hat, _ = self.get_discrete_matrices(np.mean(yaw_traj), r_feet_traj[0])
         Bd_hat_list = [self.get_discrete_matrices(yaw_traj[i], r_feet_traj[i])[1] for i in range(self.k)]
         
@@ -146,7 +169,7 @@ class ConvexMPC:
         # 3. 비용 함수 H, g 구성
         H = 2.0 * (Bqp.T @ self.Lqp @ Bqp + self.Kqp)
         
-        # 🚨 [버그 픽스 핵심] OSQP를 위해 절반(상삼각)만 떼어내고 구조 고정하기
+        # OSQP를 위해 절반(상삼각)만 떼어내고 구조 고정하기
         H_upper = np.triu(H) 
         
         # 0이 발생해 메모리 칸 개수(6652개)가 바뀌는 것을 방지하는 트릭
@@ -162,12 +185,12 @@ class ConvexMPC:
 
         # 5. OSQP 풀이
         if not self.solver_initialized:
-            self.prob.setup(P=H_sparse, q=g, A=self.C_mat, l=self.u_min, u=self.u_max, 
+            self.prob.setup(P=H_sparse, q=g, A=C_mat, l=u_min, u=u_max, 
                             warm_start=True, verbose=False)
             self.solver_initialized = True
         else:
             # 6652개의 사이즈가 완벽히 일치하므로 초고속으로 업데이트 됨
-            self.prob.update(q=g, Px=H_sparse.data)
+            self.prob.update(q=g, Px=H_sparse.data, l=u_min, u=u_max)
 
         # 최적화 풀이
         res = self.prob.solve()
@@ -177,4 +200,4 @@ class ConvexMPC:
             print(f"QP Solver Failed! Status: {res.info.status}")
             return np.zeros(12)
 
-        return res.x[:12]
+        return res.x[:12], u_max

@@ -4,7 +4,7 @@ import matplotlib.animation as animation
 from IPython.display import HTML
 import mpl_toolkits.mplot3d.art3d as art3d
 
-def animate_quadruped(history_p, history_R, history_r_feet, history_F_G, body_length, body_width, dt=0.033):
+def animate_quadruped(history_p, history_R, history_r_feet, history_F_G, body_length, body_width, dt=0.033, save=False):
     """
     4족보행 로봇의 시뮬레이션 결과를 3D 애니메이션으로 생성합니다.
     """
@@ -92,11 +92,11 @@ def animate_quadruped(history_p, history_R, history_r_feet, history_F_G, body_le
 
             # [Matplotlib 버그 회피] 힘이 0.001 N 이상일 때만 화살표를 그림
             if np.linalg.norm(force_vec) > 1e-3:
-                scale = 0.0015
+                scale = 0.0005
                 fv_scaled = force_vec * scale
                 grf_quivers[i] = ax.quiver(foot_pos[0], foot_pos[1], foot_pos[2],
                                           fv_scaled[0], fv_scaled[1], fv_scaled[2],
-                                          pivot='tail', color='orange', linewidth=2, arrow_length_ratio=0.1)
+                                          pivot='tail', color='gray', linewidth=2, arrow_length_ratio=0.3)
                 
         # 유효한 화살표 객체만 렌더러에 반환
         valid_quivers = [q for q in grf_quivers if q is not None]
@@ -109,8 +109,26 @@ def animate_quadruped(history_p, history_R, history_r_feet, history_F_G, body_le
     
     plt.close(fig)
     print("✅ 렌더링 완료!")
-    
-    return HTML(ani.to_jshtml())
+
+    if (save):
+        num_frames = len(history_p)
+        ani = animation.FuncAnimation(fig, update, frames=num_frames, interval=dt*1000, blit=False)
+        
+        # ----------------------------------------------------
+        # 💾 애니메이션 파일로 저장하기 (이 부분을 추가하세요!)
+        # ----------------------------------------------------
+        print("🎬 동영상 파일로 저장 중입니다... (몇 분 정도 소요될 수 있습니다)")
+        
+        # 옵션 1: MP4 동영상으로 저장 (고화질, 추천)
+        ani.save('quadruped_mpc.mp4', writer='ffmpeg', fps=int(1/dt), dpi=200)
+        
+        # 옵션 2: GIF 움짤로 저장 (웹 공유용, 용량이 큼)
+        # ani.save('quadruped_mpc.gif', writer='pillow', fps=int(1/dt), dpi=100)
+        
+        print("✅ 저장 완료! 'quadruped_mpc.mp4' 파일을 확인하세요.")
+        
+        plt.close(fig) # 불필요한 빈 피규어 출력 방지
+    return HTML(ani.to_jshtml()) # 주피터 노트북 출력용
 
 def plot_state_tracking(history_x, history_xref, dt):
     """
@@ -163,4 +181,59 @@ def plot_state_tracking(history_x, history_xref, dt):
 
     # 그래프 간격 자동 조절 및 출력
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+def plot_force_and_contact(history_F_G, history_Sa, sim_tf):
+    """
+    각 다리별 Z축 지면 반발력(Fz)과 접촉 상태(Sa)를 시각화합니다.
+    - history_F_G: shape (N, 3, 4) -> 3은 x,y,z / 4는 leg index
+    - history_Sa: shape (N, 4) -> 0: GROUND, 1: AIR
+    """
+    # Numpy 배열로 변환
+    F_G_arr = np.array(history_F_G)
+    Sa_arr = np.array(history_Sa)
+    
+    # 시간 배열 생성
+    num_data = F_G_arr.shape[0]
+    time = np.linspace(0, sim_tf, num_data)
+    
+    leg_names = ['FR (Front Right)', 'FL (Front Left)', 'RR (Rear Right)', 'RL (Rear Left)']
+    
+    # 4행 1열의 서브플롯 생성
+    fig, axs = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+    
+    for i in range(4):
+        ax1 = axs[i]
+        
+        # 1. Z축 지면 반발력 플롯 (파란색 실선)
+        # F_G_arr[:, 2, i] -> 모든 시간에 대한, Z축(인덱스 2), i번째 다리
+        fz_data = F_G_arr[:, 2, i]
+        ax1.plot(time, fz_data, label='Fz (Force Z)', color='royalblue', linewidth=2)
+        ax1.set_ylabel('Force (N)', color='royalblue', fontweight='bold')
+        ax1.tick_params(axis='y', labelcolor='royalblue')
+        ax1.set_title(leg_names[i], fontweight='bold')
+        ax1.grid(True, linestyle='--', alpha=0.6)
+        
+        # 2. 접촉 상태(Sa) 플롯을 위한 두 번째 Y축 (빨간색 점선)
+        ax2 = ax1.twinx()
+        # Sa = 0 (Ground), 1 (Air)
+        sa_data = Sa_arr[:, i]
+        # 직관성을 위해 step 그래프로 그림 (상태 변화가 뚝뚝 끊기도록)
+        ax2.step(time, sa_data, label='Sa (1=AIR, 0=GROUND)', color='crimson', linestyle='--', linewidth=2, where='post')
+        ax2.set_ylabel('State (Sa)', color='crimson', fontweight='bold')
+        ax2.tick_params(axis='y', labelcolor='crimson')
+        
+        # Y축 범위 고정 (Sa는 0과 1만 가지므로 보기 좋게 여백 추가)
+        ax2.set_ylim(-0.2, 1.2)
+        ax2.set_yticks([0, 1])
+        ax2.set_yticklabels(['GROUND (0)', 'AIR (1)'])
+        
+        # 범례 합치기
+        lines_1, labels_1 = ax1.get_legend_handles_labels()
+        lines_2, labels_2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper right')
+
+    plt.xlabel('Time (s)', fontsize=12, fontweight='bold')
+    plt.tight_layout()
     plt.show()
