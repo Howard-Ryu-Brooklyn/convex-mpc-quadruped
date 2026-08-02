@@ -3,13 +3,13 @@ import scipy.sparse as sparse
 import osqp
 
 class ConvexMPC:
-    def __init__(self, m, I_body, gz, dt, horizon, Lweights, Kweights, mu, fmin, fmax):
+    def __init__(self, m, I_body, gz, dt, horizon, Lweights, Kweights, µ, fmin, fmax):
         self.m = m
         self.I_body = np.diag(I_body)
         self.gz = gz
         self.dt = dt
         self.k = horizon
-        self.mu = mu
+        self.µ = µ
         self.fmin = fmin
         self.fmax = fmax
         
@@ -61,10 +61,10 @@ class ConvexMPC:
         # -fy - µfz <= 0
         
         C_leg = np.array([
-            [ 1,  0, -self.mu], 
-            [-1,  0, -self.mu], 
-            [ 0,  1, -self.mu], 
-            [ 0, -1, -self.mu], 
+            [ 1,  0, -self.µ], 
+            [-1,  0, -self.µ], 
+            [ 0,  1, -self.µ], 
+            [ 0, -1, -self.µ], 
             [ 0,  0,  1      ]  
         ]) # 5X3 
         # 4=n -> leg dimension
@@ -194,6 +194,11 @@ class ConvexMPC:
 
         # 최적화 풀이
         res = self.prob.solve()
+
+        if res.info.status_val != osqp.constant('OSQP_SOLVED'):
+            print(f"⚠️ QP Solver Failed! Status: {res.info.status}")
+            # 시뮬레이션이 터지지 않도록 안전한 기본값(0 토크) 반환
+            return np.zeros(12), 0.0
         
         if res.info.status != 'solved':
             # 실패 시 안전을 위해 지면 반발력 0 (또는 이전 값) 반환
