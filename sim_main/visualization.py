@@ -4,6 +4,12 @@ import matplotlib.animation as animation
 from IPython.display import HTML
 import mpl_toolkits.mplot3d.art3d as art3d
 
+import numpy as np
+import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.art3d as art3d
+import matplotlib.animation as animation
+from IPython.display import HTML
+
 # 인자에 history_p 대신 history_x를 추가합니다.
 def animate_quadruped(history_x, history_R, history_r_feet, history_F_G, body_length, body_width, dt=0.033, save=False, history_q=None, link_lengths=(0.1, 0.34, 0.34)):
     """
@@ -15,16 +21,13 @@ def animate_quadruped(history_x, history_R, history_r_feet, history_F_G, body_le
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
     
-    # 3D 그래프 축 범위 설정
-    ax.set_xlim(-1, 2)
-    ax.set_ylim(-1.5, 1.5)
-    ax.set_zlim(0, 1.0)
+    # 초기 3D 그래프 축 범위 설정 (나중에 update 함수에서 계속 바뀜)
     ax.set_xlabel('X [m]')
     ax.set_ylabel('Y [m]')
     ax.set_zlabel('Z [m]')
     
-    # 지면 그리기
-    square = np.array([[-10, -10, 0], [10, -10, 0], [10, 10, 0], [-10, 10, 0]])
+    # 지면 그리기 (로봇이 멀리 갈 수 있으므로 지면을 충분히 크게 50m 크기로 확장)
+    square = np.array([[-50, -50, 0], [50, -50, 0], [50, 50, 0], [-50, 50, 0]])
     ground = art3d.Poly3DCollection([square], alpha=0.1, facecolor='gray')
     ax.add_collection3d(ground)
     
@@ -55,6 +58,16 @@ def animate_quadruped(history_x, history_R, history_r_feet, history_F_G, body_le
         x_state = history_x[frame]
         p = x_state[3:6].reshape(3, 1) # 열 벡터로 형태 맞춤
         
+        # ====================================================
+        # [카메라 추종 기능 추가] 
+        # 로봇의 현재 위치(p)를 중심으로 화면 범위를 계속 갱신합니다.
+        # ====================================================
+        view_window = 1.0  # 로봇 중심으로 앞뒤좌우 1.0m씩 보여줌 (시야 크기 조절 가능)
+        ax.set_xlim(p[0, 0] - view_window, p[0, 0] + view_window)
+        ax.set_ylim(p[1, 0] - view_window, p[1, 0] + view_window)
+        ax.set_zlim(0, 1.2) # Z축은 높이 변화를 명확히 보기 위해 0부터 고정 유지
+        # ====================================================
+
         R = history_R[frame] 
         feet_offset = history_r_feet[frame] 
         F_G = history_F_G[frame] 
@@ -160,7 +173,7 @@ def plot_state_tracking(history_x, history_xref, dt):
     ]
     
     # 4행 3열짜리 커다란 도화지 생성
-    fig, axs = plt.subplots(4, 3, figsize=(16, 12))
+    fig, axs = plt.subplots(4, 3, figsize=(11, 10))
     fig.suptitle('MPC State Tracking Performance', fontsize=18, fontweight='bold')
     
     # 12개의 상태에 대해 각각 그래프 그리기
@@ -207,7 +220,7 @@ def plot_force_and_contact(history_F_G, history_Sa, sim_tf):
     leg_names = ['FR (Front Right)', 'FL (Front Left)', 'RR (Rear Right)', 'RL (Rear Left)']
     
     # 4행 1열의 서브플롯 생성
-    fig, axs = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+    fig, axs = plt.subplots(4, 1, figsize=(11, 5), sharex=True)
     
     for i in range(4):
         ax1 = axs[i]
@@ -266,7 +279,7 @@ def plot_leg_angles(history_q, sim_ts):
     alphas = [0.9, 0.75, 0.6]               # 겹친 선의 하단이 비치도록 투명도 차등 부여
     
     # 2x2 그래프 생성
-    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axs = plt.subplots(2, 2, figsize=(11, 10))
     axs = axs.flatten()
     
     for i in range(4):
@@ -306,87 +319,50 @@ def plot_leg_angles(history_q, sim_ts):
     plt.show()
 
 
-def plot_foot_comparison(history_p_foot, history_r_foot, dt, leg_idx=0):
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_foot_comparison(history_r_des, history_r_actual, dt, leg_idx=0):
     """
-    p_foot_des_wf (절대 좌표)와 r_foot_des_wf (상대 좌표)를 비교하는 플롯
-    :param history_p_foot: (N, 3, 4) 형태의 절대 발 좌표 히스토리
-    :param history_r_foot: (N, 3, 4) 형태의 상대 발 좌표 히스토리
-    :param dt: 제어 주기
-    :param leg_idx: 확인할 다리 인덱스 (0:FR, 1:FL, 2:RR, 3:RL)
-    """
-    p_data = np.array(history_p_foot)[:, :, leg_idx]
-    r_data = np.array(history_r_foot)[:, :, leg_idx]
-    time = np.arange(len(p_data)) * dt
+    목표 발 좌표(r_des)와 실제 발 좌표(r_actual)의 추종 성능을 비교하는 플롯
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+    :param history_r_des: (N, 3, 4) 형태의 목표 발 좌표 히스토리
+    :param history_r_actual: (N, 3, 4) 형태의 실제 발 좌표 히스토리
+    :param dt: 제어 및 시뮬레이션 주기 (타임스텝)
+    :param leg_idx: 확인할 다리 인덱스 (0:FR, 1:FL, 2:BR, 3:BL)
+    """
+    # 넘파이 배열 변환 및 특정 다리(leg_idx)의 데이터만 추출 -> Shape: (N, 3)
+    r_des_data = np.array(history_r_des)[:, :, leg_idx]
+    r_act_data = np.array(history_r_actual)[:, :, leg_idx]
+    
+    N = r_des_data.shape[0]
+    time = np.arange(N) * dt
+    
+    leg_names = ['Front Right (FR)', 'Front Left (FL)', 'Back Right (BR)', 'Back Left (BL)']
     axis_names = ['X Axis (Forward)', 'Y Axis (Lateral)', 'Z Axis (Height)']
     
+    fig, axs = plt.subplots(3, 1, figsize=(11, 5), sharex=True)
+    
     for i in range(3):
-        axs[i].plot(time, p_data[:, i], label='p_foot_des_wf (Absolute)', linestyle='--', color='blue', linewidth=2)
-        axs[i].plot(time, r_data[:, i], label='r_foot_des_wf (Relative)', alpha=0.7, color='red', linewidth=2)
-        axs[i].set_ylabel(f'{axis_names[i]} [m]')
-        axs[i].legend(loc='upper right')
-        axs[i].grid(True)
+        ax = axs[i]
         
-    axs[2].set_xlabel('Time [s]')
-    axs[0].set_title(f'Foot Position Comparison (Leg {leg_idx})')
-    plt.tight_layout()
-    plt.show()
-
-def plot_foot_trajectory_3d(history_r_feet_wf, history_Sa, leg_idx=0):
-    """
-    특정 다리의 3D 궤적을 스윙(Swing)과 스탠스(Stance)로 분리하여 도시합니다.
-    :param history_r_feet_wf: (N, 3, 4) 형태의 월드 기준 발 좌표 리스트
-    :param history_Sa: (N, 4) 형태의 접촉 상태 (1: Stance, 0: Swing)
-    :param leg_idx: 확인할 다리 인덱스 (0:FR, 1:FL, 2:RR, 3:RL)
-    """
-    r_data = np.array(history_r_feet_wf)[:, :, leg_idx]
+        # 💡 시각적 팁: 실제 데이터(실선)를 먼저 굵게 깔고, 목표 데이터(파선)를 위에 얹어 겹쳐도 둘 다 보이게 조절
+        ax.plot(time, r_act_data[:, i], label='Actual Position (r)', 
+                color='#1D3557', linewidth=2.5, alpha=0.9)
+        
+        ax.plot(time, r_des_data[:, i], label='Desired Position (r_des)', 
+                color='#E63946', linestyle='--', linewidth=2.0, alpha=0.9)
+        
+        # 그래프 세부 디자인 가공
+        ax.set_ylabel(f'{axis_names[i]} [m]', fontsize=11)
+        ax.legend(loc='upper right', framealpha=0.9)
+        ax.grid(True, linestyle='-', alpha=0.15)
+        
+    # 최하단 및 최상단 라벨링
+    axs[2].set_xlabel('Time [s]', fontsize=12)
+    axs[0].set_title(f'Foot Trajectory Tracking Performance: {leg_names[leg_idx]}', 
+                     fontsize=14, fontweight='bold', pad=15)
     
-    # history_Sa의 형태가 (N, 4) 또는 (N, 1, 4)일 수 있으므로 차원 맞춤
-    contact_data = np.array(history_Sa)
-    if contact_data.ndim == 3:
-        contact_data = contact_data.reshape(-1, 4)
-    contact_state = contact_data[:, leg_idx]
-
-    # X, Y, Z 좌표 추출
-    X = r_data[:, 0]
-    Y = r_data[:, 1]
-    Z = r_data[:, 2]
-
-    # 스탠스와 스윙 인덱스 분리
-    idx_stance = (contact_state == 1)
-    idx_swing = (contact_state == 0)
-
-    # ----------------------------------------------------
-    # 1. 3D Trajectory Plot
-    # ----------------------------------------------------
-    fig = plt.figure(figsize=(14, 6))
-    
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax1.plot(X, Y, Z, color='gray', alpha=0.3, linestyle='--', label='Path') # 전체 궤적 선
-    ax1.scatter(X[idx_stance], Y[idx_stance], Z[idx_stance], color='red', s=20, label='Stance (Fixed)')
-    ax1.scatter(X[idx_swing], Y[idx_swing], Z[idx_swing], color='blue', s=10, marker='x', label='Swing (Bezier)')
-    
-    ax1.set_xlabel('X [m] (Forward)')
-    ax1.set_ylabel('Y [m] (Lateral)')
-    ax1.set_zlabel('Z [m] (Height)')
-    ax1.set_title(f'Leg {leg_idx} - 3D World Frame Trajectory')
-    ax1.legend()
-
-    # ----------------------------------------------------
-    # 2. 2D Side View (X-Z Plane) - 높이 체크용
-    # ----------------------------------------------------
-    ax2 = fig.add_subplot(122)
-    ax2.plot(X, Z, color='gray', alpha=0.3, linestyle='--')
-    ax2.scatter(X[idx_stance], Z[idx_stance], color='red', s=30, label='Stance (Z=0)')
-    ax2.scatter(X[idx_swing], Z[idx_swing], color='blue', s=15, marker='x', label='Swing (Bezier)')
-    
-    ax2.set_xlabel('X [m] (Forward)')
-    ax2.set_ylabel('Z [m] (Height)')
-    ax2.set_title('Side View (X vs Z) - Clearance Check')
-    ax2.grid(True)
-    ax2.legend()
-
     plt.tight_layout()
     plt.show()
 
@@ -409,7 +385,7 @@ def plot_r_feet_wf_over_time(history_r_feet_wf, dt):
     colors = ['r', 'b', 'g', 'm'] # 각 다리를 구분할 색상
     
     # 3행 1열의 서브플롯 생성 (X, Y, Z 각각)
-    fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+    fig, axs = plt.subplots(3, 1, figsize=(11, 5), sharex=True)
     axis_labels = ['X Position [m] (Forward)', 'Y Position [m] (Lateral)', 'Z Position [m] (Height)']
     
     for ax_idx in range(3): # 0:X, 1:Y, 2:Z
@@ -431,8 +407,124 @@ def plot_r_feet_wf_over_time(history_r_feet_wf, dt):
     plt.tight_layout()
     plt.show()
 
-# ==========================================
-# 🚀 메인 루프 종료 후 호출 예시
-# ==========================================
-# (가정: 1000Hz 제어 루프의 데이터를 저장했다면 dt=0.001, 30Hz 로깅이면 dt=0.033)
 
+def plot_foot_trajectory_3d(history_p_feet_wf, history_Sa=None, history_x=None, history_p_feet_des_wf=None):
+    """
+    시간에 따른 4개 다리의 실제 절대 좌표 궤적, 목표 착지점, 몸통(CoM)의 궤적을 3D로 시각화합니다.
+    """
+    p_feet = np.array(history_p_feet_wf) # Shape: (N, 3, 4)
+    
+    fig = plt.figure(figsize=(11, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 1. 몸통(CoM) 궤적 그리기
+    if history_x is not None:
+        x_state = np.array(history_x)
+        com_x = x_state[:, 3]
+        com_y = x_state[:, 4]
+        com_z = x_state[:, 5]
+        ax.plot(com_x, com_y, com_z, color='k', linewidth=3, linestyle='-.', label='CoM (Body) Trajectory')
+
+    leg_names = ['FR', 'FL', 'RR', 'RL']
+    colors = ['r', 'b', 'g', 'm']
+    
+    # 목표 착지점 데이터가 있다면 형태를 변환
+    if history_p_feet_des_wf is not None:
+        p_feet_des = np.array(history_p_feet_des_wf)
+    
+    # 2. 4개의 다리에 대해 루프
+    for i in range(4):
+        # 실제 발 궤적
+        x = p_feet[:, 0, i]
+        y = p_feet[:, 1, i]
+        z = p_feet[:, 2, i]
+        
+        # 스윙 궤적 선
+        ax.plot(x, y, z, color=colors[i], alpha=0.4, linestyle='-', label=f'{leg_names[i]} Actual')
+        
+        # 접촉 상태(Sa)에 따른 마커
+        if history_Sa is not None:
+            sa = np.array(history_Sa)[:, i]
+            
+            # 스윙(Air)
+            swing_idx = (sa == 1)
+            ax.scatter(x[swing_idx], y[swing_idx], z[swing_idx], 
+                       color=colors[i], s=10, alpha=0.6, marker='^')
+            
+            # 스탠스(Ground)
+            stance_idx = (sa == 0)
+            ax.scatter(x[stance_idx], y[stance_idx], z[stance_idx], 
+                       color='k', s=25, alpha=1.0, marker='o', edgecolors=colors[i])
+        else:
+            ax.scatter(x, y, z, color=colors[i], s=10, alpha=0.5)
+
+        # 3. [추가] 목표 착지점(Des) 렌더링
+        if history_p_feet_des_wf is not None:
+            x_des = p_feet_des[:, 0, i]
+            y_des = p_feet_des[:, 1, i]
+            z_des = p_feet_des[:, 2, i]
+            
+            # 목표 착지점은 별표 마커(*)로 크게 표시
+            ax.scatter(x_des, y_des, z_des, color=colors[i], s=60, alpha=0.7, marker='*', 
+                       label=f'{leg_names[i]} Target (Des)')
+
+    # 4. 그래프 설정
+    ax.set_xlabel('X [m] (Forward)')
+    ax.set_ylabel('Y [m] (Lateral)')
+    ax.set_zlabel('Z [m] (Height)')
+    ax.set_title('3D Foot Trajectories vs Target Placements')
+    
+    # 3D 비율 맞추기
+    max_range = np.array([p_feet[:, 0, :].max() - p_feet[:, 0, :].min(), 
+                          p_feet[:, 1, :].max() - p_feet[:, 1, :].min(), 
+                          p_feet[:, 2, :].max() - p_feet[:, 2, :].min()]).max() / 2.0
+    
+    mid_x = (p_feet[:, 0, :].max() + p_feet[:, 0, :].min()) * 0.5
+    mid_y = (p_feet[:, 1, :].max() + p_feet[:, 1, :].min()) * 0.5
+    mid_z = (p_feet[:, 2, :].max() + p_feet[:, 2, :].min()) * 0.5
+    
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(0, mid_z + max_range)
+    
+    # 범례 중복 방지 처리
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), loc='upper left', bbox_to_anchor=(1.05, 1))
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_swing_progress(history_s, dt=0.033):
+    """
+    시간에 따른 스윙 다리의 진행률 's' (0.0 ~ 1.0)를 시각화합니다.
+    """
+    s_array = np.array(history_s) # Shape: (N, 4)
+    time = np.arange(s_array.shape[0]) * dt
+    
+    leg_names = ['FR (Front-Right)', 'FL (Front-Left)', 'RR (Rear-Right)', 'RL (Rear-Left)']
+    colors = ['r', 'b', 'g', 'm']
+    
+    fig, axs = plt.subplots(4, 1, figsize=(11, 5), sharex=True)
+    
+    for i in range(4):
+        ax = axs[i]
+        # 해당 다리의 s 값 그리기
+        ax.plot(time, s_array[:, i], color=colors[i], linewidth=2)
+        
+        # 그래프 꾸미기
+        ax.set_ylim(-0.1, 1.1)
+        ax.set_ylabel('Swing Progress (s)')
+        ax.set_title(f'Leg {i}: {leg_names[i]}')
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Stance 구간(s=0)을 회색 음영으로 칠해 구분감 부여
+        stance_idx = (s_array[:, i] == 0.0)
+        ax.fill_between(time, -0.1, 1.1, where=stance_idx, color='gray', alpha=0.2)
+        
+    axs[-1].set_xlabel('Time [s]')
+    fig.suptitle('Swing Phase Progress (s) over Time', fontsize=16)
+    
+    plt.tight_layout()
+    plt.show()
