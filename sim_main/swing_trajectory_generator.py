@@ -2,87 +2,110 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 
-def compute_bezier_with_velocity(s, control_points, T_swing=0.3):
+def compute_bezier_with_kinematics(s, control_points, T_swing=0.3):
     """
-    임의의 제어점을 받아 베지에 곡선의 위치(p_ref)와 
-    해석적 미분 속도(v_ref)를 동시에 계산하는 함수
+    임의의 제어점을 받아 베지에 곡선의 위치(p_ref), 
+    해석적 미분 속도(v_ref), 그리고 해석적 미분 가속도(a_ref)를 동시에 계산하는 함수
     """
     s = np.clip(s, 0.0, 1.0)
     pts = np.array(control_points)
-    n = len(pts) - 1  # 곡선의 차수
+    n = len(pts) - 1  # 곡선의 차수 (예: 3차면 n=3)
     
     p_ref = np.zeros(3)
     dp_ds = np.zeros(3)
+    d2p_ds2 = np.zeros(3)
     
     # 1) 위치(Position) 계산
     for i in range(n + 1):
         coeff = math.comb(n, i) * ((1 - s) ** (n - i)) * (s ** i)
         p_ref += coeff * pts[i]
         
-    # 2) 위상에 대한 미분 (dp / ds) 계산 (해석적 미분)
-    n_sub = n - 1
-    if n_sub >= 0:
-        pts_diff = pts[1:] - pts[:-1]
-        for i in range(n_sub + 1):
-            coeff_diff = math.comb(n_sub, i) * ((1 - s) ** (n_sub - i)) * (s ** i)
-            dp_ds += n * coeff_diff * pts_diff[i]
+    # 2) 위상에 대한 1계 미분 (dp / ds) 계산
+    n_sub1 = n - 1
+    if n_sub1 >= 0:
+        pts_diff1 = pts[1:] - pts[:-1]
+        for i in range(n_sub1 + 1):
+            coeff_diff1 = math.comb(n_sub1, i) * ((1 - s) ** (n_sub1 - i)) * (s ** i)
+            dp_ds += n * coeff_diff1 * pts_diff1[i]
             
-    # 3) 시간에 대한 해석적 미분 속도 (v_ref = (dp/ds) * (ds/dt))
+    # 3) 위상에 대한 2계 미분 (d^2p / ds^2) 계산 (가속도 유도용)
+    n_sub2 = n - 2
+    if n_sub2 >= 0:
+        pts_diff2 = pts_diff1[1:] - pts_diff1[:-1]
+        for i in range(n_sub2 + 1):
+            coeff_diff2 = math.comb(n_sub2, i) * ((1 - s) ** (n_sub2 - i)) * (s ** i)
+            d2p_ds2 += n * (n - 1) * coeff_diff2 * pts_diff2[i]
+            
+    # 4) 시간에 대한 해석적 미분 변환 (Chain Rule)
     ds_dt = 1.0 / T_swing
-    v_ref = dp_ds * ds_dt
     
-    return p_ref, v_ref
+    v_ref = dp_ds * ds_dt                           # 속도 = (dp/ds) * (ds/dt)
+    a_ref = d2p_ds2 * (ds_dt ** 2)                  # 가속도 = (d^2p/ds^2) * (ds/dt)^2
+    
+    return p_ref, v_ref, a_ref
 
 
 if __name__ == "__main__":
     # 1. 가상의 4족 보행 발 스윙 제어점(Control Points) 설정 (3차 베지에 예시)
     start_pt = np.array([0.0, 0.1, 0.0])                     # p0: 디딤발 떼는 위치
     ctrl_pt1 = start_pt + np.array([0.00, 0.0, 0.1])         # p1: 위+앞으로 들어올림
-    target_pt = np.array([0.2, 0.1, 0.0])                    # p3: 다음 디딜 목표 위치
+    target_pt = np.array([0.0, 0.1, 0.0])                    # p3: 다음 디딜 목표 위치
     ctrl_pt2 = target_pt + np.array([0.00, 0.0, 0.1])       # p2: 목표 지점 위에서 내려오는 궤적 가중치
 
     control_points = [start_pt, ctrl_pt1, ctrl_pt2, target_pt]
     T_swing = 0.3  # 총 스윙 시간 [초]
 
-    # 2. 진행률 s를 0.0부터 1.0까지 100개의 구간으로 쪼개어 곡선 좌표들 및 속도 계산
+    # 2. 진행률 s를 0.0부터 1.0까지 100개의 구간으로 쪼개어 계산
     s_samples = np.linspace(0.0, 1.0, 100)
     time_samples = s_samples * T_swing  # 시간 축으로 변환 (0 ~ T_swing)
     
     bezier_trajectory = []
     bezier_vel_trajectory = []
+    bezier_acc_trajectory = []
 
     for s in s_samples:
-        point, velocity = compute_bezier_with_velocity(s, control_points, T_swing)
+        point, velocity, acceleration = compute_bezier_with_kinematics(s, control_points, T_swing)
         bezier_trajectory.append(point)
         bezier_vel_trajectory.append(velocity)
+        bezier_acc_trajectory.append(acceleration)
 
     # 넘파이 배열로 변환 (Shape: 100, 3)
     bezier_trajectory = np.array(bezier_trajectory)
     bezier_vel_trajectory = np.array(bezier_vel_trajectory)
+    bezier_acc_trajectory = np.array(bezier_acc_trajectory)
 
     # =========================================================================
-    # [추가] 3. 2x1 서브플롯 생성 (위: 위치 궤적, 아래: 속도 궤적)
+    # 3. 3x1 서브플롯 생성 (위: 위치, 중간: 속도, 아래: 가속도)
     # =========================================================================
-    fig_profile, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    fig_profile, axes = plt.subplots(3, 1, figsize=(10, 11), sharex=True)
 
     # --- [상단] 베지에 위치 궤적 (Position) ---
     axes[0].plot(time_samples, bezier_trajectory[:, 0], label='X (Forward)', color='#E63946', linewidth=2)
     axes[0].plot(time_samples, bezier_trajectory[:, 1], label='Y (Lateral)', color='#457B9D', linewidth=2)
     axes[0].plot(time_samples, bezier_trajectory[:, 2], label='Z (Height)', color='#1D3557', linewidth=2)
-    axes[0].set_title('Bezier Swing Trajectory - Position Profile', fontsize=13, fontweight='bold')
-    axes[0].set_ylabel('Position [m]', fontsize=11)
+    axes[0].set_title('Bezier Swing Trajectory - Position Profile', fontsize=12, fontweight='bold')
+    axes[0].set_ylabel('Position [m]', fontsize=10)
     axes[0].grid(True, alpha=0.3)
     axes[0].legend(loc='upper right')
 
-    # --- [하단] 베지에 해석적 미분 속도 궤적 (Velocity) ---
+    # --- [중간] 베지에 해석적 미분 속도 궤적 (Velocity) ---
     axes[1].plot(time_samples, bezier_vel_trajectory[:, 0], label='Vel X', color='#E63946', linewidth=2, linestyle='--')
     axes[1].plot(time_samples, bezier_vel_trajectory[:, 1], label='Vel Y', color='#457B9D', linewidth=2, linestyle='--')
     axes[1].plot(time_samples, bezier_vel_trajectory[:, 2], label='Vel Z', color='#1D3557', linewidth=2, linestyle='--')
-    axes[1].set_title('Bezier Swing Trajectory - Analytic Velocity Profile', fontsize=13, fontweight='bold')
-    axes[1].set_xlabel(f'Time [s] (Swing Period = {T_swing}s)', fontsize=11)
-    axes[1].set_ylabel('Velocity [m/s]', fontsize=11)
+    axes[1].set_title('Bezier Swing Trajectory - Analytic Velocity Profile', fontsize=12, fontweight='bold')
+    axes[1].set_ylabel('Velocity [m/s]', fontsize=10)
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(loc='upper right')
+
+    # --- [하단] 베지에 해석적 미분 가속도 궤적 (Acceleration) ---
+    axes[2].plot(time_samples, bezier_acc_trajectory[:, 0], label='Acc X', color='#E63946', linewidth=2, linestyle=':')
+    axes[2].plot(time_samples, bezier_acc_trajectory[:, 1], label='Acc Y', color='#457B9D', linewidth=2, linestyle=':')
+    axes[2].plot(time_samples, bezier_acc_trajectory[:, 2], label='Acc Z', color='#1D3557', linewidth=2, linestyle=':')
+    axes[2].set_title('Bezier Swing Trajectory - Analytic Acceleration Profile', fontsize=12, fontweight='bold')
+    axes[2].set_xlabel(f'Time [s] (Swing Period = {T_swing}s)', fontsize=10)
+    axes[2].set_ylabel('Acceleration [m/s^2]', fontsize=10)
+    axes[2].grid(True, alpha=0.3)
+    axes[2].legend(loc='upper right')
 
     plt.tight_layout()
 

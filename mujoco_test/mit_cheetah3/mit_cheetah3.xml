@@ -48,7 +48,7 @@
     <mesh class="mit_cheetah3" file="hip.obj"/>
     <mesh class="mit_cheetah3" file="thigh.obj" scale="1 1 1.7"/>
     <mesh class="mit_cheetah3" file="thigh_mirror.obj" scale="1 1 1.7"/>
-    <mesh class="mit_cheetah3" file="trunk.obj" scale="1.2 1.2 1.2"/>
+    <mesh class="mit_cheetah3" file="trunk.obj" scale="1.2 1.6 1.2"/>
   </asset>
 
   <worldbody>

@@ -319,9 +319,6 @@ def plot_leg_angles(history_q, sim_ts):
     plt.show()
 
 
-import numpy as np
-import matplotlib.pyplot as plt
-
 def plot_foot_comparison(history_r_des, history_r_actual, dt, leg_idx=0):
     """
     목표 발 좌표(r_des)와 실제 발 좌표(r_actual)의 추종 성능을 비교하는 플롯
