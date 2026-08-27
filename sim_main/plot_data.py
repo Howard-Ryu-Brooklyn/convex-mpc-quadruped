@@ -65,8 +65,6 @@ def plot_saved_history(filename='sim_history.npz', dt=0.033):
     plt.tight_layout()
     plt.show()
 
-import numpy as np
-import matplotlib.pyplot as plt
 
 def plot_motor_torques(filename='sim_history.npz', dt=0.033):
     """
@@ -113,8 +111,7 @@ def plot_motor_torques(filename='sim_history.npz', dt=0.033):
     axs[-1].set_xlabel('Time [s]')
     plt.tight_layout()
     plt.show()
-import numpy as np
-import matplotlib.pyplot as plt
+
 
 def plot_swing_trajectory(filename='sim_history.npz', dt=1/9000.0):
     """
@@ -288,8 +285,8 @@ if __name__ == "__main__":
 
     plot_saved_history(filename='sim_history.npz', dt=sim_dt)
 
-    plot_motor_torques(filename='sim_history.npz', dt=sim_dt)
+    # plot_motor_torques(filename='sim_history.npz', dt=sim_dt)
     
-    plot_swing_trajectory('sim_history.npz')
+    # plot_swing_trajectory('sim_history.npz')
 
     # plot_swing_and_contact('sim_history.npz')

@@ -17,7 +17,7 @@ GAIT_PARAMS = {
     "trotting": {
         "duty_cycle": 0.5,
         "phase_offset": [0.0, 0.5, 0.5, 0.0],
-        "cycle_time": 0.33,
+        "cycle_time": 0.5,
         "description": "대각선 다리가 교차하는 2박자 보행"
     },
     "flying_trot": {
