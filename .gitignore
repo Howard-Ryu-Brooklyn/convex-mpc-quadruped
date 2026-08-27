@@ -13,3 +13,10 @@ env/
 # 시뮬레이션 로그 및 결과 데이터
 *.log
 results/
+
+# 시뮬레이션 산출물 (전부 재생성 가능)
+*.mp4
+*.npz
+*.png
+sim_main/video/
+baselines/*.npz
