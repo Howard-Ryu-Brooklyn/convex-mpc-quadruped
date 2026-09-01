@@ -259,7 +259,7 @@ mpc_solver = cvx_mpc.ConvexMPC(
     horizon=horizon,
     Lweights = cvx_mpc.ConvexMPC.build_state_weight(cfg.L_w_th, cfg.L_w_z, cfg.L_w_yr, cfg.L_w_v),
     Kweights=cfg.K_w_f,
-    µ=cfg.μ,
+    mu=cfg.MU_FRICTION,
     fmin=cfg.fmin,
     fmax=cfg.fmax)
 

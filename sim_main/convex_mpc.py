@@ -3,13 +3,13 @@ import scipy.sparse as sparse
 import osqp
 
 class ConvexMPC:
-    def __init__(self, m, I_body, gz, dt, horizon, Lweights, Kweights, µ, fmin, fmax):
+    def __init__(self, m, I_body, gz, dt, horizon, Lweights, Kweights, mu, fmin, fmax):
         self.m = m
         self.I_body = np.diag(I_body)
         self.gz = gz
         self.dt = dt
         self.k = horizon
-        self.µ = µ
+        self.mu = mu        # 마찰 계수 μ
         self.fmin = fmin
         self.fmax = fmax
         
@@ -61,10 +61,10 @@ class ConvexMPC:
         # -fy - µfz <= 0
         
         C_leg = np.array([
-            [ 1,  0, -self.µ], 
-            [-1,  0, -self.µ], 
-            [ 0,  1, -self.µ], 
-            [ 0, -1, -self.µ], 
+            [ 1,  0, -self.mu], 
+            [-1,  0, -self.mu], 
+            [ 0,  1, -self.mu], 
+            [ 0, -1, -self.mu], 
             [ 0,  0,  1      ]  
         ]) # 5X3 
         # 4=n -> leg dimension

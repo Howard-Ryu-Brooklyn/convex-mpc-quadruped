@@ -22,7 +22,7 @@ Ilink_upper = 0.00318 # [kgm^2] 0.33kg, 0.34m
 Ilink_lower = 0.00318 # [kgm^2] 0.33kg, 0.34m
 
 # Constant
-μ = 0.6 #
+MU_FRICTION = 0.6 #
 gz = -9.8 # [m/s^2]
 
 # Cost function matrix coefficient
@@ -33,7 +33,7 @@ L_w_v = 1 # weight of velocity (Vxyz) in L matrix
 K_w_f = 1e-6 # alpha
 
 # Constraint parameters
-τmax = 250 # [Nm]
+TAU_MAX = 250 # [Nm]
 fmin = 10 # [N]
 fmax = 666 # [N]
 
