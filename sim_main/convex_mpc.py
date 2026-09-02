@@ -197,12 +197,11 @@ class ConvexMPC:
 
         if res.info.status_val != osqp.constant('OSQP_SOLVED'):
             print(f"⚠️ QP Solver Failed! Status: {res.info.status}")
-            # 시뮬레이션이 터지지 않도록 안전한 기본값(0 토크) 반환
+            # TODO(Step 3): 실패를 MPCSolution 값으로 표현할 것.
+            #   np.zeros(12)는 네 다리가 동시에 힘을 놓는다는 뜻이고 실기에서
+            #   가장 위험한 동작이다. 안전한 fallback은 직전 유효 해 또는
+            #   중력 보상 균등 분배이며, 그 판단은 호출자의 몫이다.
+            #   동작을 바꾸는 수정이므로 Step 0 범위 밖에 둔다.
             return np.zeros(12), 0.0
-        
-        if res.info.status != 'solved':
-            # 실패 시 안전을 위해 지면 반발력 0 (또는 이전 값) 반환
-            print(f"QP Solver Failed! Status: {res.info.status}")
-            return np.zeros(12)
 
         return res.x[:12], u_max
