@@ -186,6 +186,13 @@ def compute_bezier(s, control_points):
     :param control_points: 제어점 리스트, shape=(N+1, 3) (3차원 좌표)
     :return: 진행률 s에서의 발의 3차원 위치 (x, y, z)
     """
+    # s가 [0,1] 밖이면 번스타인 다항식이 외삽한다. 3차 베지에는
+    # s>1에서 p3 + 3(s-1)(p3-p2) 로 발산하며, 스윙 궤적에서는
+    # p3-p2 = -clearance*ẑ 이므로 발이 지면 아래로 파고든다.
+    # swing_trajectory_generator.compute_bezier_with_kinematics와 동일하게
+    # 함수 내부에서 방어한다.
+    s = np.clip(s, 0.0, 1.0)
+
     # 제어점 배열을 numpy 배열로 변환
     pts = np.array(control_points)
     n = len(pts) - 1 # 베지에 곡선의 차수

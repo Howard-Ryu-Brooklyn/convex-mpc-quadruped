@@ -284,7 +284,7 @@ def run_scenario(
                         p2 = p3_target + np.array([0, 0, clearance_height]) # 앞으로 이동하며 고도 유지 (Control 2), 다음 발 디딤 위치 넣기
                 
                         # 3차 베지에 곡선을 통해 현재 시점(s)의 스윙 발 위치 도출
-                        p_feet_wf[:, i] = cfg.compute_bezier(s, [p0_start, p1, p2, p3_target])
+                        p_feet_wf[:, i] = cfg.compute_bezier(s_clip, [p0_start, p1, p2, p3_target])
             # 🟩 
 
             r_feet_wf = p_feet_wf - robot.P
