@@ -110,9 +110,7 @@ def run_scenario(
     # MPC 계산할때는 위 주기에서 10~16스텝 쪼갠걸로 행렬 계산
     L_weights = cvx_mpc.ConvexMPC.build_state_weight(cfg.L_w_th, cfg.L_w_z, cfg.L_w_yr, cfg.L_w_v)
 
-    p_feet_del = np.array((3,1)) 
     x_ref_traj = np.zeros((13 * horizon, 1))
-    r_feet_traj = []
     yaw_traj = np.zeros(horizon)
 
     # 시각화 데이터 로깅 리스트
@@ -161,7 +159,9 @@ def run_scenario(
             if np.isnan(X_current).any() or np.isinf(X_current).any():
                 diverged = True
                 break
-            if np.isnan(r_feet_traj).any() or np.isinf(r_feet_traj).any():
+            # r_feet_traj는 이제 MPC 틱마다 새로 만들어지므로 이 시점에 존재하지 않는다.
+            # 애초에 검사해야 할 것은 파생 리스트가 아니라 그 원천인 r_feet_des_wf다.
+            if not np.isfinite(r_feet_des_wf).all():
                 diverged = True
                 break
 
@@ -216,7 +216,24 @@ def run_scenario(
                 # ----------------------------------------------------
                 
                 contact_sequence = np.zeros((4, horizon)) 
+                # 매 MPC 틱마다 새로 만든다. 루프 밖 리스트에 append만 하면
+                # (a) 스텝마다 horizon개씩 무한 증가하고
+                # (b) solve()가 앞의 k개만 읽으므로 첫 호출의 발 위치를 영원히 재사용한다.
+                # ψ=90°에서는 토크암이 0.46m(팔 길이 0.326m보다 큼) 어긋난다.
+                r_feet_traj = []
                 
+                # MPC의 토크암 r_i 는 '힘이 실제로 작용하는 지점'이어야 한다.
+                #   - 지지 중인 다리: 접지 순간에 고정된 실제 발 위치
+                #   - 스윙 중인 다리: 아직 안 닿았으므로 라이버트 목표 착지점
+                # 라이버트 목표점을 네 다리 전부에 쓰면 (T_stance/2)*v = 0.125m(v=1m/s)의
+                # 전방 편향이 일괄 적용되어, 존재하지 않는 0.125*mg ~ 53 N·m의
+                # 피치 모멘트를 MPC가 보게 된다.
+                # TODO(Step 1): horizon 각 스텝에서 접지할 다리의 위치를 예측해야 한다.
+                #   현재는 전 구간에 '현재 시점' 값을 쓰는 근사다.
+                _stance = (np.asarray(Sa_current) == 0)[None, :]        # (1,4)
+                r_feet_mpc = np.where(_stance, p_feet_wf - robot.P, r_feet_des_wf)
+  
+
                 for k in range(horizon):
                     future_time = current_time + (k * mpc_dt)
                     future_phase = (future_time % gait_period) / gait_period
@@ -225,7 +242,7 @@ def run_scenario(
                     contact_sequence[:, k] = future_sa
                     
                     # 예측 구간 전체에 Raibert로 계산한 목표 착지점(p_foot_des_wf)을 복사해 넣습니다.
-                    r_feet_traj.append(r_feet_des_wf.copy())
+                    r_feet_traj.append(r_feet_mpc.copy())
 
                 # 4. MPC 풀이
                 fmpc, umax = mpc.solve(X_current, x_ref_traj, yaw_traj, r_feet_traj, contact_sequence)
