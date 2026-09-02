@@ -1,0 +1,23 @@
+# 현재는 pytest 설정만 담는다.
+# 패키지 메타데이터([project], [build-system])와 의존성 핀 고정은 Step 8에서 추가한다.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+markers = [
+    "golden: 기준선 궤적 비교. 의도한 변경 뒤에는 `make accept`로 갱신한다",
+    "slow: 실행이 오래 걸리는 테스트 (S2 endurance, gait 매트릭스 등)",
+]
+
+# 무관한 경고를 끄는 목적은 '조용히 하기'가 아니라 진짜 신호를 보이게 하는 것이다.
+# 580개에 묻혀 있던 osqp deprecation(warm_start -> warm_starting,
+# osqp.constant 직접 접근)은 의도적으로 남긴다. 의존성 핀 고정이 없어 생긴
+# 실제 위험 신호이며 Step 8에서 처리한다.
+filterwarnings = [
+    "ignore::DeprecationWarning:matplotlib.*",
+    "ignore::PendingDeprecationWarning:matplotlib.*",
+    "ignore:.*oneOf.*:DeprecationWarning",
+    "ignore:.*parseString.*:DeprecationWarning",
+    "ignore:.*resetCache.*:DeprecationWarning",
+    "ignore:.*enablePackrat.*:DeprecationWarning",
+]
