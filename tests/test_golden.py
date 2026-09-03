@@ -1,12 +1,10 @@
-import sys
 from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim_main"))
-
+# sim_main 의 import 경로 설정은 tests/conftest.py 가 담당한다.
 from scenarios import SCENARIOS          # noqa: E402
 from scenario_runner import run_scenario # noqa: E402
 

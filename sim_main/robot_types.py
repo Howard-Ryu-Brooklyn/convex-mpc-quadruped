@@ -1,0 +1,181 @@
+"""시스템 전역 데이터 구조.
+
+파일명이 types.py 가 아닌 이유: sim_main 이 sys.path 에 직접 얹혀 있어
+types.py 는 표준 라이브러리의 types 모듈을 가린다. dataclasses, enum 을
+비롯한 다수의 표준/서드파티 모듈이 내부적으로 import types 를 하므로
+무엇이 언제 깨질지 예측할 수 없다. 1-6 에서 정식 패키지
+(quadruped_mpc.types)로 옮기면 네임스페이스가 생겨 안전해진다.
+
+이 파일은 지금까지 코드가 얼버무리고 있던 규약들을 명시적으로 못 박는다.
+Step 1-1 시점에서는 아무도 import하지 않는 순수 추가이며, 기존 함수와의
+동등성은 tests/test_types.py 가 증명한다(characterization test).
+
+프레임 접미사 규약 — 예외 없이 지킨다
+    _W : world frame (관성계). 중력이 -z 방향.
+    _B : body frame  (몸통 고정, 원점 = CoM)
+    _H : hip-local   (다리별 고관절 원점. IK 입력)
+
+배열 규약
+    Vec3x4 의 열 인덱스는 항상 Leg enum 이다 (다리 4개).
+    시간 축을 갖는 것은 이름에 _traj / _seq 를 붙여 구분한다.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Annotated
+
+import numpy as np
+from numpy.typing import NDArray
+
+# ── 배열 별칭 ────────────────────────────────────────────────────────────
+Vec3 = Annotated[NDArray[np.float64], "(3,)"]
+Vec3x4 = Annotated[NDArray[np.float64], "(3, 4) — 열 인덱스 = Leg"]
+Mat3 = Annotated[NDArray[np.float64], "(3, 3)"]
+Bool4 = Annotated[NDArray[np.bool_], "(4,) — 인덱스 = Leg"]
+
+
+class Leg(IntEnum):
+    """다리 인덱스.
+
+    지금까지 config.hip_location_bf 의 주석에만 존재하던 암묵 규약을 강제한다.
+    IntEnum 이므로 배열 인덱스로 바로 쓸 수 있다: feet.pos_W[:, Leg.FR]
+
+    MuJoCo 모델의 관절 순서가 이와 다를 수 있으므로, MuJoCoPlant 는 자신의
+    __init__ 에서 매핑 테이블을 한 번만 만들어 이 순서로 정렬해 반환한다.
+    """
+
+    FR = 0  # front right
+    FL = 1  # front left
+    RR = 2  # rear right
+    RL = 3  # rear left
+
+
+class SolverStatus(IntEnum):
+    """QP 솔버 결과. 실패의 종류를 구분해야 사후 분석이 가능하다."""
+
+    SOLVED = 0
+    MAX_ITER_REACHED = 1
+    PRIMAL_INFEASIBLE = 2
+    DUAL_INFEASIBLE = 3
+    UNKNOWN_FAILURE = 4
+
+
+@dataclass(frozen=True)
+class RobotState:
+    """단일 강체(SRB) 상태. 모든 계층이 공유하는 단일 진실.
+
+    자세 표현 — ZYX 오일러각
+        참고 논문(Di Carlo et al., Convex MPC)이 ZYX 오일러각을 전제로
+        선형화를 유도했고, 현 SRBD 동역학과 MPC 의 Ac 행렬이 모두 그 유도를
+        따른다. 쿼터니언으로 바꾸면 재작성이 되어 회귀 테스트의 의미가
+        사라지므로 오일러를 정본으로 삼는다.
+
+        한계: pitch = ±90° 에서 짐벌락. dynamics.py 가 ±89° 로 클립하고 있고,
+        4족보행에서 그 클립이 발동하는 상황은 표현의 문제가 아니라 이미 전복이다.
+        공중제비 등 pitch 가 ±90° 를 넘는 동작이 필요해지면 그때 쿼터니언으로
+        옮기고, 그것은 별도 단계로 다룬다.
+
+    yaw 는 unwrapped(연속)다
+        현 SRBD 는 각속도를 순수 적분하므로 yaw 가 감기지 않는다(360°, 720° …).
+        반면 쿼터니언에서 뽑은 오일러각은 (-pi, pi] 로 감긴다. 그대로 쓰면
+        180° 를 넘는 순간 yaw 가 점프해 MPC 의 horizon 예측
+        (current_yaw + omega_z * t_i)과 자세 오차항이 동시에 깨진다.
+        따라서 MuJoCoPlant 는 이전 yaw 를 기억해 ±2pi 를 보정하는
+        상태 있는(stateful) unwrap 을 수행할 책임을 진다.
+
+    omega_W 는 world frame 각속도다
+        MPC 의 Θ̇ = R_z(psi)^T · omega 유도와 dynamics 의 자이로항
+        omega × (I_W omega) 가 모두 world 를 전제한다.
+        MuJoCo 와 실기 IMU 는 통상 body frame 각속도를 주므로,
+        Plant 경계에서 omega_B -> omega_W 변환이 필요하다.
+    """
+
+    p_com_W: Vec3  # CoM 위치 [m]
+    v_com_W: Vec3  # CoM 선속도 [m/s]
+    rpy_W: Vec3  # ZYX 오일러각 [rad] (roll, pitch, yaw), yaw 는 unwrapped
+    omega_W: Vec3  # 각속도 [rad/s], world frame
+
+    def __post_init__(self) -> None:
+        for name in ("p_com_W", "v_com_W", "rpy_W", "omega_W"):
+            value = getattr(self, name)
+            if not isinstance(value, np.ndarray) or value.shape != (3,):
+                raise ValueError(
+                    f"{name} must be an ndarray of shape (3,), got "
+                    f"{getattr(value, 'shape', type(value))}"
+                )
+
+    @property
+    def roll(self) -> float:
+        return float(self.rpy_W[0])
+
+    @property
+    def pitch(self) -> float:
+        return float(self.rpy_W[1])
+
+    @property
+    def yaw(self) -> float:
+        return float(self.rpy_W[2])
+
+    def to_mpc_vector(self) -> NDArray[np.float64]:
+        """MPC 용 13차원 상태 [Theta, p, omega, v, 1.0]^T.
+
+        마지막 1.0 은 중력을 선형 시스템에 포함시키기 위한 상수항이다.
+        기존 config.get_13d_state 와 수치적으로 동일해야 하며,
+        tests/test_types.py::test_to_mpc_vector_matches_legacy 가 이를 검증한다.
+        """
+        return np.concatenate(
+            [self.rpy_W, self.p_com_W, self.omega_W, self.v_com_W, [1.0]]
+        )
+
+
+@dataclass(frozen=True)
+class FootState:
+    """발 관련 상태의 단일 소유자.
+
+    pos_W 와 rel_com_W 는 단위가 같지만 의미가 다르다. 별도 필드로 두어
+    결함 5(상대 벡터를 절대 위치 자리에 대입)를 구조적으로 불가능하게 한다.
+
+    is_stance 는 True 가 접지다. 기존 규약(AIR=1, GROUND=0)은 '접촉'이라는
+    이름의 값에서 1 이 '접촉하지 않음'을 뜻해 이중 부정
+    (stance_flags = 1.0 - contact_sequence)을 낳았다.
+    """
+
+    pos_W: Vec3x4  # 발끝 절대 위치 [m]. 지면 접촉 판정, 스윙 궤적 생성
+    rel_com_W: Vec3x4  # CoM -> 발끝 벡터 [m]. MPC 토크암 r_i
+    is_stance: Bool4  # True = 접지
+
+    def __post_init__(self) -> None:
+        for name in ("pos_W", "rel_com_W"):
+            value = getattr(self, name)
+            if not isinstance(value, np.ndarray) or value.shape != (3, 4):
+                raise ValueError(
+                    f"{name} must be an ndarray of shape (3, 4), got "
+                    f"{getattr(value, 'shape', type(value))}"
+                )
+        if not isinstance(self.is_stance, np.ndarray) or self.is_stance.shape != (4,):
+            raise ValueError(
+                f"is_stance must be an ndarray of shape (4,), got "
+                f"{getattr(self.is_stance, 'shape', type(self.is_stance))}"
+            )
+
+
+@dataclass(frozen=True)
+class ControlOutput:
+    """제어기 출력. 성공/실패와 진단 정보를 함께 나른다.
+
+    실패를 np.zeros(12) 로 바꿔치기하면 상위 계층이 '성공한 0 힘'과 구분할 수
+    없다. 실기에서 넘어진 원인을 로그에서 찾지 못하게 되는 가장 흔한 경로이며,
+    0 힘은 네 다리가 동시에 힘을 놓는다는 뜻이라 그 자체로 위험하다.
+    안전한 대체값(직전 유효 해, 중력 보상 균등 분배)의 선택은 호출자의 몫이고,
+    제어기의 책임은 실패를 정확히 보고하는 데까지다.
+    """
+
+    forces_W: Vec3x4  # 지면 반발력 [N]
+    status: SolverStatus
+    solve_time_s: float  # Step 7 의 실시간성 검증이 여기서 시작된다
+    iterations: int
+
+    @property
+    def is_valid(self) -> bool:
+        return self.status is SolverStatus.SOLVED
