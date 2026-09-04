@@ -1,16 +1,24 @@
 import numpy as np
 
 from kinematics import clip_q, compute_leg_ik, get_q
+from plant_base import PlantBase
+from robot_types import RobotState
 from rotations import omega_to_rpy_rate, rpy_to_matrix
-# utils
-DEG2RAD = np.pi / 180
 
-class SRBDynamics:
+class SRBDynamics(PlantBase):
+    """단일 강체(SRB) 시뮬레이터.
+
+    발 위치는 운동학적으로 강제되고(다리에 질량이 없다), 몸통만 GRF 로 적분된다.
+
+    TODO(Step 1-6): 정식 패키지로 옮기며 파일을 plant/srbd.py 로,
+        클래스를 SRBDPlant 로 이름을 맞춘다.
+    """
+
     def __init__(self, dt, mass, inertia_diag, gz, init_pos, init_vel, init_ang, init_angvel, link_info, init_leg_ang, init_leg_angvel, hip_offsets_body, r_feet_wf, Ilink):
         """
         단일 강체 동역학(SRBD) 시뮬레이터 초기화
         """
-        self.dt = dt
+        self._dt = dt
         self.m = mass
         self.IB = np.diag(inertia_diag)
         self.g_vec = np.array([[0], [0], [gz]])
@@ -40,7 +48,33 @@ class SRBDynamics:
         # [[Ihip-roll],[Iupper_pitch],[Ilower_pitch]].T
 
     # ==========================================
-    # ✅ 추가: 외부(main.py / MPC) 피드백용 속성(Property)
+    # PlantBase 인터페이스
+    # ==========================================
+    @property
+    def dt(self) -> float:
+        """물리 적분 주기 [s]."""
+        return self._dt
+
+    def observe(self) -> RobotState:
+        """현재 상태의 스냅샷.
+
+        아래의 P / V / ANG / ANGVEL 프로퍼티와 달리 내부 배열의 참조가 아니라
+        복사본을 담은 불변 객체를 돌려준다. 기존 프로퍼티는 robot.P += x 같은
+        코드로 시뮬레이터 내부를 오염시킬 수 있었다.
+
+        ang_vel 을 omega_W 로 담는 근거: 자이로항 omega × (I_W omega) 와
+        MPC 의 Θ̇ = R_z(psi)^T · omega 가 모두 world frame 을 전제한다.
+        """
+        return RobotState(
+            p_com_W=self.pos.flatten(),      # flatten() 은 항상 복사본을 만든다
+            v_com_W=self.vel.flatten(),
+            rpy_W=self.ang.flatten(),
+            omega_W=self.ang_vel.flatten(),
+        )
+
+    # ==========================================
+    # 레거시 프로퍼티 (내부 배열의 살아있는 참조를 반환한다)
+    # TODO(Step 1-5): 호출부를 observe() 로 옮기고 제거한다.
     # ==========================================
     @property
     def P(self):
@@ -76,10 +110,15 @@ class SRBDynamics:
     
     
     def step(self, F_G, r_feet_wf):
-        """
-        [입력] F_G: 4족 지면 반발력 (3x4)
-        [입력] self.r_feet_wf: 월드 기준 발 좌표 (3x4)
-        [출력] 업데이트된 상태 변수들
+        """한 물리 스텝 진행 (PlantBase.step 구현).
+
+        Args:
+            F_G: (3,4) 지면 반발력 [N], world frame. 스윙 다리는 0 이어야 한다.
+            r_feet_wf: (3,4) CoM 기준 발 위치 [m], world frame.
+
+        Returns:
+            (3,4) 고관절 기준 발 위치. 시각화·로깅용이며 PlantBase 계약에는
+            없다. TODO(Step 1-5): 로깅 경로를 정리하며 반환값을 없앤다.
         """
         # 1. 행렬 업데이트 (회전 변환 및 관성 텐서)
         roll, pitch, yaw = self.ang[0, 0], self.ang[1, 0], self.ang[2, 0]
