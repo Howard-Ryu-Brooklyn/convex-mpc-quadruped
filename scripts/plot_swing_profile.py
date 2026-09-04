@@ -1,51 +1,22 @@
+"""스윙 궤적 프로파일 시각화 (수동 실행용 스크립트).
+
+원래 sim_main/swing_trajectory_generator.py 였다. 유일한 실제 로직이던
+compute_bezier_with_kinematics 가 sim_main/bezier.py 로 옮겨가면서
+남은 것은 데모 플롯뿐이라 scripts/ 로 이동했다.
+
+실행: python scripts/plot_swing_profile.py
+"""
+import sys
+from pathlib import Path
+
 import numpy as np
-import math
 import matplotlib.pyplot as plt
 
-def compute_bezier_with_kinematics(s, control_points, T_swing=0.3):
-    """
-    임의의 제어점을 받아 베지에 곡선의 위치(p_ref), 
-    해석적 미분 속도(v_ref), 그리고 해석적 미분 가속도(a_ref)를 동시에 계산하는 함수
-    """
-    s = np.clip(s, 0.0, 1.0)
-    pts = np.array(control_points)
-    n = len(pts) - 1  # 곡선의 차수 (예: 3차면 n=3)
-    
-    p_ref = np.zeros(3)
-    dp_ds = np.zeros(3)
-    d2p_ds2 = np.zeros(3)
-    
-    # 1) 위치(Position) 계산
-    for i in range(n + 1):
-        coeff = math.comb(n, i) * ((1 - s) ** (n - i)) * (s ** i)
-        p_ref += coeff * pts[i]
-        
-    # 2) 위상에 대한 1계 미분 (dp / ds) 계산
-    n_sub1 = n - 1
-    if n_sub1 >= 0:
-        pts_diff1 = pts[1:] - pts[:-1]
-        for i in range(n_sub1 + 1):
-            coeff_diff1 = math.comb(n_sub1, i) * ((1 - s) ** (n_sub1 - i)) * (s ** i)
-            dp_ds += n * coeff_diff1 * pts_diff1[i]
-            
-    # 3) 위상에 대한 2계 미분 (d^2p / ds^2) 계산 (가속도 유도용)
-    n_sub2 = n - 2
-    if n_sub2 >= 0:
-        pts_diff2 = pts_diff1[1:] - pts_diff1[:-1]
-        for i in range(n_sub2 + 1):
-            coeff_diff2 = math.comb(n_sub2, i) * ((1 - s) ** (n_sub2 - i)) * (s ** i)
-            d2p_ds2 += n * (n - 1) * coeff_diff2 * pts_diff2[i]
-            
-    # 4) 시간에 대한 해석적 미분 변환 (Chain Rule)
-    ds_dt = 1.0 / T_swing
-    
-    v_ref = dp_ds * ds_dt                           # 속도 = (dp/ds) * (ds/dt)
-    a_ref = d2p_ds2 * (ds_dt ** 2)                  # 가속도 = (d^2p/ds^2) * (ds/dt)^2
-    
-    return p_ref, v_ref, a_ref
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim_main"))
+from bezier import bezier_with_derivatives  # noqa: E402
 
 
-if __name__ == "__main__":
+def main():
     # 1. 가상의 4족 보행 발 스윙 제어점(Control Points) 설정 (3차 베지에 예시)
     start_pt = np.array([0.0, 0.1, 0.0])                     # p0: 디딤발 떼는 위치
     ctrl_pt1 = start_pt + np.array([0.00, 0.0, 0.1])         # p1: 위+앞으로 들어올림
@@ -64,7 +35,7 @@ if __name__ == "__main__":
     bezier_acc_trajectory = []
 
     for s in s_samples:
-        point, velocity, acceleration = compute_bezier_with_kinematics(s, control_points, T_swing)
+        point, velocity, acceleration = bezier_with_derivatives(s, control_points, T_swing)
         bezier_trajectory.append(point)
         bezier_vel_trajectory.append(velocity)
         bezier_acc_trajectory.append(acceleration)
@@ -145,3 +116,6 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+if __name__ == "__main__":
+    main()

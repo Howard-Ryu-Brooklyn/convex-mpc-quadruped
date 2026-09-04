@@ -2,7 +2,7 @@ import numpy as np
 import config as cfg
 from config import get_13d_state
 from kinematics import get_q, get_r_feet_bf
-from swing_trajectory_generator import compute_bezier_with_kinematics
+from bezier import bezier_with_derivatives
 from visualization import animate_quadruped, plot_state_tracking, plot_force_and_contact, plot_leg_angles, plot_foot_comparison, plot_foot_trajectory_3d, plot_r_feet_wf_over_time, plot_foot_trajectory_3d, plot_swing_progress
 import convex_mpc as cvx_mpc
 from gait_planning import get_gait_parameters, get_contact_state
@@ -498,9 +498,9 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
                         p2 = p3_target + np.array([0, 0, clearance_height]) # 앞으로 이동하며 고도 유지 (Control 2), 다음 발 디딤 위치 넣기
 
                         # 3차 베지에 곡선을 통해 현재 시점(s)의 스윙 발 위치 도출
-                        p_feet_swing_traj_wf[:,i], v_feet_swing_traj_wf[:,i], a_feet_swing_traj_wf[:,i] = compute_bezier_with_kinematics(current_s[i], 
+                        p_feet_swing_traj_wf[:,i], v_feet_swing_traj_wf[:,i], a_feet_swing_traj_wf[:,i] = bezier_with_derivatives(current_s[i], 
                                                                                                                                          [p0_start, p1, p2, p3_target], 
-                                                                                                                                         T_swing=T_swing)
+                                                                                                                                         duration_s=T_swing)
                         p_com_wf = X_current[3:6,0:1]
                         v_com_wf = X_current[9:12,0:1]
                         

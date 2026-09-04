@@ -1,7 +1,6 @@
 # config.py
 # 논문에 기제된 로봇 파라미터 및 상수
 import numpy as np
-import math
 
 # Robot 
 m = 43 # [kg]
@@ -54,45 +53,9 @@ hip_location_bf = np.array([
 
 # 기구학 계산은 kinematics.py 로, 회전 변환은 rotations.py 로 옮겼다.
 # 이 파일은 로봇 상수만 담는다.
-# TODO(Step 1-2c): compute_bezier 는 궤적 생성이므로 bezier.py 로 옮긴다.
 # TODO(Step 1-5): get_13d_state 는 RobotState.to_mpc_vector 로 대체된다.
 
 
 def get_13d_state(ang, p, angvel, v):
     # x = [Roll, Pitch, Yaw, X, Y, Z, Wx, Wy, Wz, Vx, Vy, Vz, gravity=1.0]^T
     return np.vstack((ang, p, angvel, v, np.array([[1.0]])))
-
-
-def compute_bezier(s, control_points):
-    """
-    N차 베지에 곡선상의 한 점을 계산하는 함수
-    
-    :param s: 0.0 ~ 1.0 사이의 궤적 진행률 (상태 위상, Phase)
-    :param control_points: 제어점 리스트, shape=(N+1, 3) (3차원 좌표)
-    :return: 진행률 s에서의 발의 3차원 위치 (x, y, z)
-    """
-    # s가 [0,1] 밖이면 번스타인 다항식이 외삽한다. 3차 베지에는
-    # s>1에서 p3 + 3(s-1)(p3-p2) 로 발산하며, 스윙 궤적에서는
-    # p3-p2 = -clearance*ẑ 이므로 발이 지면 아래로 파고든다.
-    # swing_trajectory_generator.compute_bezier_with_kinematics와 동일하게
-    # 함수 내부에서 방어한다.
-    s = np.clip(s, 0.0, 1.0)
-
-    # 제어점 배열을 numpy 배열로 변환
-    pts = np.array(control_points)
-    n = len(pts) - 1 # 베지에 곡선의 차수
-    
-    p_s = np.zeros(3) # 반환할 (x, y, z) 좌표 초기화
-    
-    for i in range(n + 1):
-        # 번스타인 다항식 (Bernstein Polynomial) 계산: (n C i) * (1-s)^(n-i) * s^i
-        coeff = math.comb(n, i) * ((1 - s) ** (n - i)) * (s ** i)
-        
-        # 제어점에 가중치를 곱하여 누적
-        p_s += coeff * pts[i]
-        
-    return p_s
-
-# get_Rx / get_Ry / get_Rz 는 rotations.py 로 옮겼다.
-# (이 파일 안에서만 정의되고 어디서도 호출되지 않던 죽은 코드였으며,
-#  dynamics 가 같은 행렬을 인라인으로 다시 만들고 있었다.)
