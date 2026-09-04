@@ -1,6 +1,7 @@
 import numpy as np
 import config as cfg
-from config import get_q, get_r_feet_bf, get_13d_state
+from config import get_13d_state
+from kinematics import get_q, get_r_feet_bf
 from swing_trajectory_generator import compute_bezier_with_kinematics
 from visualization import animate_quadruped, plot_state_tracking, plot_force_and_contact, plot_leg_angles, plot_foot_comparison, plot_foot_trajectory_3d, plot_r_feet_wf_over_time, plot_foot_trajectory_3d, plot_swing_progress
 import convex_mpc as cvx_mpc

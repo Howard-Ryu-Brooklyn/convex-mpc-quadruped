@@ -1,6 +1,6 @@
 import numpy as np
 
-from config import clip_q, compute_leg_ik, get_q
+from kinematics import clip_q, compute_leg_ik, get_q
 from rotations import omega_to_rpy_rate, rpy_to_matrix
 # utils
 DEG2RAD = np.pi / 180
@@ -72,41 +72,6 @@ class SRBDynamics:
         """rotation matrix from body to world (3x3)"""
         return self.Rw_b
     
-    @staticmethod
-    def compute_leg_jacobian(q, l_hip=0.08, l_thigh=0.34, l_calf=0.34):
-        """
-        관절 각도 q = [q1, q2, q3]를 받아 3x3 자코비안 행렬을 반환합니다.
-        """
-        q1, q2, q3 = q[0], q[1], q[2]
-        
-        # 삼각함수 연산
-        s1, c1 = np.sin(q1), np.cos(q1)
-        s2, c2 = np.sin(q2), np.cos(q2)
-        s23, c23 = np.sin(q2 + q3), np.cos(q2 + q3)
-        
-        # 공통 항 
-        term_c = l_thigh * c2 + l_calf * c23
-        term_s = l_thigh * s2 + l_calf * s23
-        
-        # 3x3 자코비안 생성
-        J = np.zeros((3, 3))
-        
-        # Row 0 (X)
-        J[0, 0] = 0.0
-        J[0, 1] = -term_c
-        J[0, 2] = -l_calf * c23
-        
-        # Row 1 (Y)
-        J[1, 0] = -l_hip * s1 - c1 * term_c
-        J[1, 1] = s1 * term_s
-        J[1, 2] = l_calf * s1 * s23
-        
-        # Row 2 (Z)
-        J[2, 0] = -l_hip * c1 + s1 * term_c
-        J[2, 1] = c1 * term_s
-        J[2, 2] = l_calf * c1 * s23
-        
-        return J
 
     
     

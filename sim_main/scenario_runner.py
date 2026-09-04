@@ -5,7 +5,8 @@
 """
 import numpy as np
 import config as cfg
-from config import get_q, get_r_feet_bf, get_13d_state
+from config import get_13d_state
+from kinematics import get_q, get_r_feet_bf
 import dynamics as SRB_model
 from rotations import rpy_to_matrix
 import convex_mpc as cvx_mpc
