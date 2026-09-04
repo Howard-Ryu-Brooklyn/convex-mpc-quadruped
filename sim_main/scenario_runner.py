@@ -8,6 +8,12 @@ import config as cfg
 from bezier import bezier
 from config import get_13d_state
 from kinematics import get_q, get_r_feet_bf
+from planning import (
+    build_contact_schedule,
+    build_horizon_plan,
+    build_reference_trajectory,
+    raibert_footholds,
+)
 import dynamics as SRB_model
 from rotations import rpy_to_matrix
 import convex_mpc as cvx_mpc
@@ -112,6 +118,8 @@ def run_scenario(
     # MPC 계산할때는 위 주기에서 10~16스텝 쪼갠걸로 행렬 계산
     L_weights = cvx_mpc.ConvexMPC.build_state_weight(cfg.L_w_th, cfg.L_w_z, cfg.L_w_yr, cfg.L_w_v)
 
+    # 첫 MPC 틱(sim_cnt = step_blue) 이전에도 로깅이 x_ref_traj 를 읽으므로
+    # 사전 초기화가 필요하다. MPC 브랜치에서 매 틱 새 배열로 교체된다.
     x_ref_traj = np.zeros((13 * horizon, 1))
     yaw_traj = np.zeros(horizon)
 
@@ -170,84 +178,41 @@ def run_scenario(
             # 🟦 상위 제어기 (MPC)
             if (sim_cnt % step_blue == 0):
                 
-                # 회전 속도 (rad/s) 설정: 초당 약 30도 회전
-                omega_z_des = omega_z_deg_s * DEG2RAD 
-                
-                # X, Y 이동 속도는 0으로 묶어둠 (제자리 유지)
-                v_des = np.array([[v_des_x], [v_des_y], [0.0]]) 
-                
-                # 기준점: 현재 위치(X,Y)와 현재 Yaw 각도
-                current_x = X_current[3, 0]
-                current_y = X_current[4, 0]
-                current_yaw = X_current[2, 0] # 상태 벡터의 [2]번 인덱스가 Yaw(ψ)
-                
-                for i in range(horizon):
-                    t_i = i * mpc_dt
-                    x_ref_traj[i * 13 + 0, 0] = 0.0                              # roll
-                    x_ref_traj[i * 13 + 1, 0] = 0.0                              # pitch
-                    x_ref_traj[i * 13 + 2, 0] = current_yaw + omega_z_des * t_i  # yaw
-                    x_ref_traj[i * 13 + 3, 0] = current_x + v_des[0, 0] * t_i    # ← 변경점
-                    x_ref_traj[i * 13 + 4, 0] = current_y + v_des[1, 0] * t_i    # ← 변경점
-                    x_ref_traj[i * 13 + 5, 0] = target_height_com
-                    x_ref_traj[i * 13 + 6 : i * 13 + 8, 0] = 0.0                 # roll/pitch rate
-                    x_ref_traj[i * 13 + 8, 0] = omega_z_des                      # yaw rate
-                    x_ref_traj[i * 13 + 9 : i * 13 + 12, 0] = v_des.flatten()
-                    yaw_traj[i] = current_yaw + omega_z_des * t_i
-                    
-                
+                omega_z_des = omega_z_deg_s * DEG2RAD
+                v_des = np.array([[v_des_x], [v_des_y], [0.0]])
 
-                # ----------------------------------------------------
-                # 2. ★ Raibert Heuristic 발판 위치 계산 ★
-                # ----------------------------------------------------
-                v_current = X_current[9:12, 0:1].copy() # 현재 CoM 선속도 (3x1)
-                
-                # CoM 기준 각 엉덩이(Hip) 관절의 위치 (3x4 행렬)
-                hip_location_wf = robot.P + robot.RW_B @ cfg.hip_location_bf # (3x3) @ (3x4) = (3x4)
-                
-                # Raibert 공식 적용 (Numpy 브로드캐스팅으로 4다리 동시 계산!)
-                p_feet_del = (T_stance / 2.0) * v_current
+                # 1) 참조 상태 궤적 (속도 추종 모드 — planning.py 의 설계 메모 참조)
+                x_ref_traj, yaw_traj = build_reference_trajectory(
+                    X_current, v_des, omega_z_des, target_height_com, horizon, mpc_dt
+                )
 
-                # 미래에 착지할 상대 위치 (r = p_hip + p_foot_del)
+                # 2) Raibert 발판 계획.
+                #    p_feet_des_wf 는 red 루프의 스윙 궤적 목표점으로도 쓰인다.
+                p_feet_des_wf, r_feet_des_wf = raibert_footholds(
+                    robot.P, robot.RW_B, X_current[9:12, 0:1].copy(), T_stance
+                )
 
-                p_feet_des_wf = hip_location_wf + p_feet_del 
-                p_feet_des_wf[2, :] = 0 #-x_ref_traj[i * 13 + 5, 0] # Z축은 지면을 향하므로 다리 길이로 고정
-                r_feet_des_wf = p_feet_des_wf - robot.P
+                # 3) horizon 각 스텝의 접촉 스케줄 예측
+                is_stance_schedule = build_contact_schedule(
+                    current_time, gait_period, gait_duty, gait_phase_offset,
+                    horizon, mpc_dt,
+                )
 
-                # ----------------------------------------------------
-                # 3. MPC 미래 예측 궤적(Horizon) 구성
-                # ----------------------------------------------------
-                
-                contact_sequence = np.zeros((4, horizon)) 
-                # 매 MPC 틱마다 새로 만든다. 루프 밖 리스트에 append만 하면
-                # (a) 스텝마다 horizon개씩 무한 증가하고
-                # (b) solve()가 앞의 k개만 읽으므로 첫 호출의 발 위치를 영원히 재사용한다.
-                # ψ=90°에서는 토크암이 0.46m(팔 길이 0.326m보다 큼) 어긋난다.
-                r_feet_traj = []
-                
-                # MPC의 토크암 r_i 는 '힘이 실제로 작용하는 지점'이어야 한다.
-                #   - 지지 중인 다리: 접지 순간에 고정된 실제 발 위치
-                #   - 스윙 중인 다리: 아직 안 닿았으므로 라이버트 목표 착지점
-                # 라이버트 목표점을 네 다리 전부에 쓰면 (T_stance/2)*v = 0.125m(v=1m/s)의
-                # 전방 편향이 일괄 적용되어, 존재하지 않는 0.125*mg ~ 53 N·m의
-                # 피치 모멘트를 MPC가 보게 된다.
-                # TODO(Step 1): horizon 각 스텝에서 접지할 다리의 위치를 예측해야 한다.
-                #   현재는 전 구간에 '현재 시점' 값을 쓰는 근사다.
-                _stance = (np.asarray(Sa_current) == 0)[None, :]        # (1,4)
-                r_feet_mpc = np.where(_stance, p_feet_wf - robot.P, r_feet_des_wf)
-  
+                # 4) horizon 조립.
+                #    반환값이므로 '이전 호출의 값이 남아 있다'가 존재할 수 없다.
+                #    결함 2 를 규율이 아니라 구조로 막는 지점이다.
+                plan = build_horizon_plan(
+                    x_ref=x_ref_traj,
+                    yaw_ref=yaw_traj,
+                    is_stance_schedule=is_stance_schedule,
+                    r_feet_now_W=p_feet_wf - robot.P,
+                    r_feet_des_W=r_feet_des_wf,
+                    is_stance_now=(np.asarray(Sa_current) == 0),
+                )
 
-                for k in range(horizon):
-                    future_time = current_time + (k * mpc_dt)
-                    future_phase = (future_time % gait_period) / gait_period
-                    future_sa = get_contact_state(future_phase, gait_duty, gait_phase_offset)
-                    
-                    contact_sequence[:, k] = future_sa
-                    
-                    # 예측 구간 전체에 Raibert로 계산한 목표 착지점(p_foot_des_wf)을 복사해 넣습니다.
-                    r_feet_traj.append(r_feet_mpc.copy())
-
-                # 4. MPC 풀이
-                fmpc, umax = mpc.solve(X_current, x_ref_traj, yaw_traj, r_feet_traj, contact_sequence)
+                fmpc, umax = mpc.solve(
+                    X_current, plan.x_ref, plan.yaw_ref, plan.r_feet_W, plan.contact_legacy
+                )
                 
                 F_G = np.array(fmpc).reshape(4, 3).T
 

@@ -179,3 +179,51 @@ class ControlOutput:
     @property
     def is_valid(self) -> bool:
         return self.status is SolverStatus.SOLVED
+
+
+@dataclass(frozen=True)
+class HorizonPlan:
+    """MPC 한 번의 풀이에 필요한 미래 정보 전부. 매 MPC 틱마다 새로 생성된다.
+
+    ★ 결함 2 가 구조적으로 불가능해지는 지점.
+      이전에는 r_feet_traj 가 루프 밖 리스트였고 append 만 되어, '누가 비우는가'에
+      답할 사람이 없었다. 그 결과 solve() 가 읽는 앞의 k 개는 영원히 첫 호출의
+      값이었다. 반환값에는 '이전 호출의 값이 남아 있다'가 존재할 수 없다.
+      규율이 아니라 구조로 막는다.
+
+    ★ 결함 8 이 제자리를 찾는 지점.
+      r_feet_W 는 스텝별 리스트다. 현재는 전 구간에 같은 값을 넣는 근사지만
+      (TODO Step 1-4b), 스텝 k 에서 접지할 다리의 위치를 예측해 넣을 자리가
+      타입에 이미 마련되어 있다.
+    """
+
+    x_ref: NDArray[np.float64]      # (13*k, 1) 참조 상태 궤적
+    yaw_ref: NDArray[np.float64]    # (k,)      각 스텝의 예측 yaw [rad]
+    r_feet_W: list                  # k 개의 (3,4) — 스텝별 CoM 기준 발 위치(토크암)
+    is_stance: NDArray[np.bool_]    # (4, k)    True = 접지
+
+    def __post_init__(self) -> None:
+        k = len(self.r_feet_W)
+        if self.x_ref.shape != (13 * k, 1):
+            raise ValueError(f"x_ref shape must be ({13 * k}, 1), got {self.x_ref.shape}")
+        if self.yaw_ref.shape != (k,):
+            raise ValueError(f"yaw_ref shape must be ({k},), got {self.yaw_ref.shape}")
+        if self.is_stance.shape != (4, k):
+            raise ValueError(f"is_stance shape must be (4, {k}), got {self.is_stance.shape}")
+        for i, r in enumerate(self.r_feet_W):
+            if r.shape != (3, 4):
+                raise ValueError(f"r_feet_W[{i}] shape must be (3, 4), got {r.shape}")
+
+    @property
+    def horizon(self) -> int:
+        return len(self.r_feet_W)
+
+    @property
+    def contact_legacy(self) -> NDArray[np.float64]:
+        """구 규약 (AIR=1, GROUND=0) 으로 변환한 (4, k) 배열.
+
+        ConvexMPC._build_friction_cone 이 아직 이 형태를 받고 내부에서
+        stance_flags = 1.0 - contact_sequence 로 되돌린다. 이중 부정이다.
+        TODO(Step 1-4b): MPC 가 is_stance 를 직접 받도록 바꾸고 이 프로퍼티를 제거한다.
+        """
+        return 1.0 - self.is_stance.astype(float)
