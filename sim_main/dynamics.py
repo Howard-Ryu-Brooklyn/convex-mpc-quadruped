@@ -1,5 +1,7 @@
 import numpy as np
+
 from config import clip_q, compute_leg_ik, get_q
+from rotations import omega_to_rpy_rate, rpy_to_matrix
 # utils
 DEG2RAD = np.pi / 180
 
@@ -34,7 +36,7 @@ class SRBDynamics:
         self.r_feet_wf = r_feet_wf.copy() # (3,4)
         self.Ilink = np.diag(Ilink) # (1,3)
         
-        self.Rw_b = get_rotation_matrix(init_ang.flatten()[0], init_ang.flatten()[1], init_ang.flatten()[2])
+        self.Rw_b = rpy_to_matrix(init_ang.flatten()[0], init_ang.flatten()[1], init_ang.flatten()[2])
         # [[Ihip-roll],[Iupper_pitch],[Ilower_pitch]].T
 
     # ==========================================
@@ -116,7 +118,7 @@ class SRBDynamics:
         """
         # 1. 행렬 업데이트 (회전 변환 및 관성 텐서)
         roll, pitch, yaw = self.ang[0, 0], self.ang[1, 0], self.ang[2, 0]
-        self.Rw_b = get_rotation_matrix(roll, pitch, yaw)
+        self.Rw_b = rpy_to_matrix(roll, pitch, yaw)
         IW = self.Rw_b @ self.IB @ self.Rw_b.T
         IW_INV = np.linalg.inv(IW)
         
@@ -146,14 +148,9 @@ class SRBDynamics:
         self.ang_vel += self.ang_acc * self.dt
 
         # 6. 각속도 -> 오일러 각 변화율 변환 (짐벌락 방지)
-        pitch_safe = np.clip(pitch, -89 * DEG2RAD, 89 * DEG2RAD)
-        R_rate2euler = np.array([
-            [np.cos(yaw) / np.cos(pitch_safe), np.sin(yaw) / np.cos(pitch_safe), 0],
-            [-np.sin(yaw),                     np.cos(yaw),                      0],
-            [np.cos(yaw) * np.tan(pitch_safe), np.sin(yaw) * np.tan(pitch_safe), 1]
-        ])
-        
-        self.ang += R_rate2euler @ self.ang_vel * self.dt
+        #    Θ̇ = T(theta, psi) · omega_W. 이 식이 MPC 의 Ac[0:3,6:9] 와
+        #    일치해야 하며, 어긋나 있던 것이 결함 1 이었다.
+        self.ang += omega_to_rpy_rate(pitch, yaw) @ self.ang_vel * self.dt
 
         # 원점: hip (ab/ad motor)
         # 입력: f -> torque -> 출력: q1q2q3
@@ -185,18 +182,6 @@ class SRBDynamics:
         return p_foot_local.copy()
     
 
-def get_rotation_matrix(roll, pitch, yaw):
-    """오일러 각(Z-Y-X) 기반 회전 행렬 계산"""
-    Rx = np.array([[1, 0, 0],
-                    [0, np.cos(roll), -np.sin(roll)],
-                    [0, np.sin(roll), np.cos(roll)]])
-    Ry = np.array([[np.cos(pitch), 0, np.sin(pitch)],
-                    [0, 1, 0],
-                    [-np.sin(pitch), 0, np.cos(pitch)]])
-    Rz = np.array([[np.cos(yaw), -np.sin(yaw), 0],
-                    [np.sin(yaw), np.cos(yaw), 0],
-                    [0, 0, 1]])
-    return Rz @ Ry @ Rx
 
 
         # 실제로는 지면 반발력 -> 토크 -> 각도 변환 순서지만

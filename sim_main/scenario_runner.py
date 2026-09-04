@@ -7,7 +7,7 @@ import numpy as np
 import config as cfg
 from config import get_q, get_r_feet_bf, get_13d_state
 import dynamics as SRB_model
-from dynamics import get_rotation_matrix
+from rotations import rpy_to_matrix
 import convex_mpc as cvx_mpc
 from gait_planning import get_gait_parameters, get_contact_state
 
@@ -78,7 +78,7 @@ def run_scenario(
             [ 0, 0, -target_height_com], # RR
             [ 0, 0, -target_height_com]  # RL
         ]).T # hip의 바로 아래 발이 위치한다고 가정
-    Rw_b0 = get_rotation_matrix(ANG0[0,0],ANG0[1,0],ANG0[2,0])
+    Rw_b0 = rpy_to_matrix(ANG0[0,0],ANG0[1,0],ANG0[2,0])
 
     Q0 = get_q(target_height_com)
     QDOT0 = np.zeros((3,4)) 

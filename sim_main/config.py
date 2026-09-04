@@ -208,33 +208,6 @@ def compute_bezier(s, control_points):
         
     return p_s
 
-    
-def get_Rx(theta):
-    """ X축 기준 회전 행렬 (Roll) """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    return np.array([
-        [1, 0,  0],
-        [0, c, -s],
-        [0, s,  c]
-    ])
-
-def get_Ry(theta):
-    """ Y축 기준 회전 행렬 (Pitch) """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    return np.array([
-        [ c, 0, s],
-        [ 0, 1, 0],
-        [-s, 0, c]
-    ])
-
-def get_Rz(theta):
-    """ Z축 기준 회전 행렬 (Yaw) """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    return np.array([
-        [c, -s, 0],
-        [s,  c, 0],
-        [0,  0, 1]
-    ])
+# get_Rx / get_Ry / get_Rz 는 rotations.py 로 옮겼다.
+# (이 파일 안에서만 정의되고 어디서도 호출되지 않던 죽은 코드였으며,
+#  dynamics 가 같은 행렬을 인라인으로 다시 만들고 있었다.)
