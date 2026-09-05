@@ -6,8 +6,11 @@
 import numpy as np
 import config as cfg
 from bezier import bezier
+from clock import MultiRateClock
+from history import HistoryLogger
 from robot_types import RobotState
 from kinematics import get_q, get_r_feet_bf
+from swing import SwingTrajectoryGenerator
 from planning import (
     build_contact_schedule,
     build_horizon_plan,
@@ -47,22 +50,13 @@ def run_scenario(
     DEG2RAD = np.pi / 180
 
     # ==========================================
-    # 1. 시뮬레이션 파라미터 및 제어 주기 설정
+    # 1. 제어 주기
     # ==========================================
-    loop_blue_hz = mpc_hz    # [Hz] MPC 연산 주기 25~50
-    loop_red_hz = red_hz   # [Hz] 상태 추정/스윙 제어 주기
-    loop_green_hz = 4500 # [Hz] 저수준 제어 주기
-    loop_sim_hz = sim_hz   # [Hz] 물리 엔진(동역학) 주기
-
-    sim_freq = loop_sim_hz
-    sim_ts = 1 / sim_freq
-    sim_tf = duration_s # [sec] 전체 시뮬레이션 시간
-    
-    num_steps = round(sim_tf / sim_ts)
-
-    step_blue = round(sim_freq / loop_blue_hz)   
-    step_red = round(sim_freq / loop_red_hz)     
-    step_vis = round(sim_freq / log_hz) # 시각화는 30FPS
+    clock = MultiRateClock(
+        sim_hz=sim_hz, mpc_hz=mpc_hz, swing_hz=red_hz,
+        log_hz=log_hz, duration_s=duration_s,
+    )
+    mpc_dt = clock.mpc_dt
 
     # ==========================================
     # 2. 초기 상태 및 변수 선언
@@ -104,16 +98,15 @@ def run_scenario(
     gait_period, gait_duty, gait_phase_offset = get_gait_parameters(gait_name)
 
     Sa_current = np.zeros(4)
-    # 스윙 상태 추적을 위한 타이머 및 저장 공간
-    swing_time_counter = np.zeros(4)      # 각 다리가 공중에 떠 있는 시간을 기록 (0.0으로 초기화)
-    swing_start_pos_wf = np.zeros((3, 4)) # 발이 땅에서 떨어진 순간의 위치를 영구 저장
 
     # Gait 파라미터 (예: Trot의 경우 보통 0.15초 ~ 0.25초)
     T_swing = gait_period * (1-gait_duty)   # 발이 공중에 떠서 이동하는 목표 시간 (150ms)
     T_stance = gait_period * gait_duty  # 발이 땅을 딛고 있는 목표 시간 (150ms)
 
+    # 스윙 궤적 생성기가 이지 시점 위치와 경과 시간을 소유한다.
+    swing = SwingTrajectoryGenerator(T_swing, clearance_height)
 
-    mpc_dt = 1/loop_blue_hz
+
     # Ttrot = 0.33s  10 timestep =  (mpc주기에 맞춰 타임스텝을 설정)
     # Thound = 0.5s  16 timestep
     # MPC는 최소 보행 한주기 정도는 내다 볼 수 있게 설계해야함
@@ -126,26 +119,15 @@ def run_scenario(
     x_ref_traj = np.zeros((13 * horizon, 1))
     yaw_traj = np.zeros(horizon)
 
-    # 시각화 데이터 로깅 리스트
-    history_p, history_R, history_r_feet_wf, history_F_G = [], [], [], []
-    # 상태 플롯(Plot)용 로깅 리스트 추가
-    history_x, history_xref = [], []
-    history_Sa = []
-    history_q = []
-    history_s = []
-    history_p_feet_des_wf = []
-    history_p_feet_wf = []
-    history_r_feet_des_wf = []
-    history_p_feet_local = []
+    log = HistoryLogger()
     p_feet_local = np.zeros((3,4))
     current_s = np.zeros(4)
     diverged = False
-    max_s = 0
     # ==========================================
     # 3. 메인 시뮬레이션 제어 루프
     # ==========================================
 
-    for sim_cnt in range(num_steps):
+    for sim_cnt in range(clock.n_steps):
         
         if sim_cnt == 0:
             X_current = X0.copy()
@@ -170,13 +152,13 @@ def run_scenario(
             #   1-1 에서 FootState 가 pos_W 와 rel_com_W 를 별도 필드로
             #   나눈 이유가 이것이며, 그 타입을 쓰면 애초에 불가능하다.
             p_feet_des_wf = p_feet_wf.copy()
-            robot = SRB_model.SRBDynamics(sim_ts, cfg.m, inertia_diag_list, cfg.gz, P0, V0, ANG0, ANGVEL0, link_info, Q0, QDOT0, cfg.hip_location_bf, r_feet_wf, inertia_leg_diag_list)
+            robot = SRB_model.SRBDynamics(clock.dt, cfg.m, inertia_diag_list, cfg.gz, P0, V0, ANG0, ANGVEL0, link_info, Q0, QDOT0, cfg.hip_location_bf, r_feet_wf, inertia_leg_diag_list)
 
             mpc = cvx_mpc.ConvexMPC(cfg.m, inertia_diag_list, cfg.gz, mpc_dt, horizon, L_weights, cfg.K_w_f, cfg.MU_FRICTION, cfg.fmin, cfg.fmax)
         else:
             pass    
         
-            current_time = sim_cnt * sim_ts
+            current_time = clock.time_at(sim_cnt)
             # 살아있는 참조 4개를 꺼내 조립하는 대신 불변 스냅샷 하나를 받는다.
             # test_observe_to_mpc_vector_matches_legacy_layout 가 두 경로의
             # 비트 단위 동등성을 증명해두었으므로 이 교체는 기계적이다.
@@ -198,7 +180,7 @@ def run_scenario(
                 break
 
             # 🟦 상위 제어기 (MPC)
-            if (sim_cnt % step_blue == 0):
+            if clock.is_mpc_tick(sim_cnt):
                 
                 omega_z_des = omega_z_deg_s * DEG2RAD
                 v_des = np.array([[v_des_x], [v_des_y], [0.0]])
@@ -250,58 +232,17 @@ def run_scenario(
                 F_G = np.array(fmpc).reshape(4, 3).T * plan.is_stance[:, 0]
 
             # 🟥 상태 추정 및 스윙 제어기
-            if (sim_cnt % step_red == 0):
-                # Red loop의 실제 dt (예: 1000Hz면 0.001)
-                
-                dt_red = sim_ts * step_red 
-
-                # p_feet_wf = gen_swing_traj(cur_time, gait_info, dt, p_feet_des_wf)
-                # gait_info: gait_period, gait_duty, gait_phase_offset, T_swing
-                
-                # 현재 시간 기준의 정확한 위상(Phase) 계산
+            if clock.is_swing_tick(sim_cnt):
                 current_phase = (current_time % gait_period) / gait_period
-                # # 현재 다리의 접촉 상태 업데이트
                 Sa_current = get_contact_state(current_phase, gait_duty, gait_phase_offset)
 
-                # 2. 각 다리의 상태에 따른 위치 제어
-                for i in range(4):
-                    # --- [STANCE PHASE (지지기)] ---
-                    if Sa_current[i] == 0: # ground
-                        # 방금 전까지 스윙(공중)이었다가 처음 땅에 닿은 순간(Touchdown)
-                        current_s[i] = 0.0
-                        if swing_time_counter[i] > 0:
-                            swing_time_counter[i] = 0.0 # 스윙 타이머 초기화
-                        
-                        # 💡 핵심: 지지기일 때는 r_feet_wf[:, i]의 값을 절대 갱신하지 않습니다!
-                        # 발이 땅에 박혀있으므로 이전 월드 좌표를 그대로 유지합니다.
-                        
-                    # --- [SWING PHASE (스윙기)] ---
-                    else:
-                        # 방금 막 땅에서 떨어진 순간(Liftoff)
-                        if swing_time_counter[i] == 0.0:
-                            # 궤적의 출발점이 될 현재 발의 월드 좌표를 고정 저장
-                            # 원래는 현재 상태를 받아와야함
-                            swing_start_pos_wf[:, i] = p_feet_wf[:, i].copy()
-                        
-                        # 스윙 타이머 업데이트 및 진행률 s 계산
-                        swing_time_counter[i] += dt_red
-                        s = (swing_time_counter[i] / T_swing)
-                        s_clip = np.clip(s, 0.0, 1.0)
-                        current_s[i] = s_clip
-                        max_s = max(max_s, s)
-                        # s = np.clip(s, 0.0, 1.0) # 0.0 ~ 1.0 사이로 강제 고정
-                        # Raibert Heuristic을 이용한 목표 착지점 (P3) 예측
-                        # 1) 현재 몸통 위치 기준 해당 다리 엉덩이(Hip)의 월드 좌표를 구함
-                        # 2) 엉덩이 위치에서 로봇의 속도를 곱해 미래 착지점 투영
-                        p3_target = p_feet_des_wf[:,i].copy()                           # 발 딛기 (Target)
-                        
-                        # 베지에 곡선 제어점 세팅 (P0: 시작, P1: 이륙, P2: 착지 진입, P3: 목표)
-                        p0_start = swing_start_pos_wf[:, i]                 # 발 떼기 (Start), 발 떼기 전 위치 넣기
-                        p1 = p0_start + np.array([0, 0,  clearance_height])  # 위로 들어올림 (Control 1) 높이 설정하기
-                        p2 = p3_target + np.array([0, 0, clearance_height]) # 앞으로 이동하며 고도 유지 (Control 2), 다음 발 디딤 위치 넣기
-                
-                        # 3차 베지에 곡선을 통해 현재 시점(s)의 스윙 발 위치 도출
-                        p_feet_wf[:, i] = bezier(s_clip, [p0_start, p1, p2, p3_target])
+                p_feet_wf = swing.update(
+                    is_stance=(np.asarray(Sa_current) == 0),
+                    p_feet_W=p_feet_wf,
+                    p_feet_target_W=p_feet_des_wf,
+                    dt=clock.swing_dt,
+                )
+                current_s = swing.phase
             # 🟩 
 
             r_feet_wf = p_feet_wf - robot.P
@@ -311,32 +252,36 @@ def run_scenario(
         # ----------------------------------------------------
         # 데이터 로깅
         # ----------------------------------------------------
-        if (sim_cnt % step_vis == 0):
-            history_R.append(robot.RW_B.copy())
-            history_r_feet_wf.append(r_feet_wf.copy())
-            history_F_G.append(F_G.copy())
-            history_x.append(X_current.flatten())
-            history_xref.append(x_ref_traj[0:13].flatten())
-            history_Sa.append(Sa_current.copy())
-            history_q.append(robot.Q.copy())
-            history_p_feet_des_wf.append(p_feet_des_wf.copy())
-            history_r_feet_des_wf.append(r_feet_des_wf.copy())
-            history_p_feet_local.append(p_feet_local.copy())
-            history_p_feet_wf.append(p_feet_wf.copy())
-            history_s.append(current_s.copy())
-        n_log = len(history_x)
+        if clock.is_log_tick(sim_cnt):
+            log.record(
+                R=robot.RW_B,
+                r_feet_wf=r_feet_wf,
+                F_G=F_G,
+                x=X_current.flatten(),
+                xref=x_ref_traj[0:13].flatten(),
+                Sa=Sa_current,
+                q=robot.Q,
+                p_feet_des_wf=p_feet_des_wf,
+                r_feet_des_wf=r_feet_des_wf,
+                p_feet_local=p_feet_local,
+                p_feet_wf=p_feet_wf,
+                s=current_s,
+            )
+
+    h = log.arrays()
+    n_log = len(log)
 
     return {
-        "completed":    not diverged,               # 끝까지 돌았는가
-        "diverged_at_s": None if not diverged else sim_cnt * sim_ts,
-        "t":        np.arange(n_log)*(step_vis*sim_ts),
-        "com_pos":  np.asarray(history_x)[:, 3:6],
-        "com_vel":  np.asarray(history_x)[:, 9:12],
-        "rpy":      np.asarray(history_x)[:, 0:3],
-        "omega":    np.asarray(history_x)[:, 6:9],
-        "grf":      np.asarray(history_F_G),
-        "feet_W":   np.asarray(history_p_feet_wf),
-        "contact":  np.asarray(history_Sa),
-        "q":        np.asarray(history_q),
-        "max_s":    np.asarray(max_s),
+        "completed":     not diverged,
+        "diverged_at_s": None if not diverged else sim_cnt * clock.dt,
+        "t":             np.arange(n_log) * (clock.log_every * clock.dt),
+        "com_pos":       h["x"][:, 3:6],
+        "com_vel":       h["x"][:, 9:12],
+        "rpy":           h["x"][:, 0:3],
+        "omega":         h["x"][:, 6:9],
+        "grf":           h["F_G"],
+        "feet_W":        h["p_feet_wf"],
+        "contact":       h["Sa"],
+        "q":             h["q"],
+        "max_s":         np.asarray(swing.max_phase_seen),
     }
