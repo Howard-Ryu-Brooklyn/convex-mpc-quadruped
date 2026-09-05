@@ -38,6 +38,12 @@ def metrics(h, nominal_height, target_distance_m=0.0):
         "전진 거리 오차 최대 [m]": float(abs(
             (h["com_pos"][-1, 0] - h["com_pos"][0, 0]) - target_distance_m)),
         "측면 이탈 최대 [m]": float(np.abs(h["com_pos"][:, 1]).max()),
+        # ⚠️ 이 값은 30Hz 로그 표본의 평균이지 시간 평균이 아니다. 힘이 접촉
+        #    전이에서 계단처럼 바뀌므로 표본 평균은 편향된다. 실제로 이벤트
+        #    구동 도입 후 0.9991 -> 0.9939 로 움직였지만 높이 편차는 4.35mm 로
+        #    변함이 없다 - 0.61% 지지력 부족이 실재했다면 3초에 27cm 가라앉는다.
+        #    즉 이 변화는 표본화 아티팩트다. TODO: runner 에서 전 스텝 시간
+        #    평균을 계산해 넘긴다.
         "평균 수직력 / mg": float(fz.sum(axis=1).mean() / mg),
         # 양수 = 위반. OSQP 수렴 오차(~1e-1 N) 수준이면 무해하다.
         "마찰 피라미드 위반 최대 [N]": float(max(cone.max(), 0.0)),
@@ -60,6 +66,17 @@ NOISE_FLOOR = {
     "[N]":   1e-1,
     "/ mg":  1e-4,
 }
+
+
+#: 이상값이 '작을수록 좋다'가 아니라 '특정 값이어야 하는' 지표.
+#: 평균 수직력/mg 는 1.0 에서 멀어지는 것이 나쁜 것이지 작아지는 것이 나쁜
+#: 게 아니다. 아래 판정은 |x - target| 로 본다.
+#:
+#: 이 항목이 없던 동안 '평균 수직력 / mg' 는 이름에 편차/RMS/최대 가 없어서
+#: lower_is_better 가 False 였고, 따라서 **어떤 값이 나와도 항상 "=" 로
+#: 찍혔다.** 0.9991 -> 0.9939 (지지력 0.61% 부족) 도 조용히 통과했다.
+#: 비교 도구가 무엇을 평가하지 않고 있는지 아는 것도 도구의 일부다.
+TARGET_VALUE = {"평균 수직력 / mg": 1.0}
 
 
 def _noise_floor(metric_name: str) -> float:
@@ -93,6 +110,16 @@ def compare(name):
         if max(abs(a), abs(b)) < _noise_floor(k):
             # 두 값 다 잡음 바닥 아래 → 비율이 몇이든 비교 자체가 무의미하다.
             mark = "  —"
+        elif k in TARGET_VALUE:
+            # 목표값에서 얼마나 멀어졌는가로 판정한다.
+            t = TARGET_VALUE[k]
+            da, db = abs(a - t), abs(b - t)
+            if max(da, db) < _noise_floor(k):
+                mark = "  —"
+            elif da == 0 or abs(db / da - 1.0) < 0.02:
+                mark = "  ="
+            else:
+                mark = "  ✅ 개선" if db < da else "  ⚠️ 악화"
         elif abs(a) < 1e-12:
             mark = "  —"
         else:
