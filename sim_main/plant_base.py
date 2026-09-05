@@ -56,6 +56,17 @@ class PlantBase(ABC):
         """
 
     @abstractmethod
+    def hip_positions_W(self):
+        """(3,4) 네 고관절의 월드 좌표 [m].
+
+        Raibert 발판 계획의 기준점이다. 이것이 Plant 의 책임인 이유는
+        '힙이 어디 있는가'가 로봇의 물리적 사실이기 때문이다. SRBD 는
+        몸통 자세와 config 의 오프셋에서 계산하고, MuJoCo 는 엔진이 이미
+        알고 있으며(data.xpos), 실기에서는 관절각과 실측 치수로부터 나온다.
+        계획 계층은 그 출처를 몰라도 되어야 한다.
+        """
+
+    @abstractmethod
     def observe(self) -> RobotState:
         """현재 상태의 스냅샷을 반환한다.
 

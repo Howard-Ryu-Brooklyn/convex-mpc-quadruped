@@ -70,7 +70,8 @@ def test_reference_is_velocity_tracking_not_position_tracking():
 # ── Raibert 발판 ─────────────────────────────────────────────────────────
 def test_raibert_projects_footholds_to_ground():
     p_com = np.array([[1.0], [2.0], [HEIGHT]])
-    p_des, r_des = raibert_footholds(p_com, np.eye(3), np.zeros((3, 1)), 0.25)
+    hips = p_com + cfg.hip_location_bf
+    p_des, r_des = raibert_footholds(hips, p_com, np.zeros((3, 1)), 0.25)
     npt.assert_allclose(p_des[2, :], 0.0)
     npt.assert_allclose(r_des[2, :], -HEIGHT)
 
@@ -80,8 +81,9 @@ def test_raibert_offset_is_half_stance_times_velocity():
     p_com = np.array([[1.0], [2.0], [HEIGHT]])
     T_stance, vx = 0.25, 1.0
 
-    still, _ = raibert_footholds(p_com, np.eye(3), np.zeros((3, 1)), T_stance)
-    moving, _ = raibert_footholds(p_com, np.eye(3), np.array([[vx], [0.0], [0.0]]), T_stance)
+    hips = p_com + cfg.hip_location_bf
+    still, _ = raibert_footholds(hips, p_com, np.zeros((3, 1)), T_stance)
+    moving, _ = raibert_footholds(hips, p_com, np.array([[vx], [0.0], [0.0]]), T_stance)
 
     npt.assert_allclose(moving[0, :] - still[0, :], T_stance / 2 * vx)
     npt.assert_allclose(moving[1, :] - still[1, :], 0.0)
@@ -89,7 +91,8 @@ def test_raibert_offset_is_half_stance_times_velocity():
 
 def test_raibert_places_feet_under_hips_when_standing():
     p_com = np.array([[0.0], [0.0], [HEIGHT]])
-    p_des, _ = raibert_footholds(p_com, np.eye(3), np.zeros((3, 1)), 0.25)
+    hips = p_com + cfg.hip_location_bf
+    p_des, _ = raibert_footholds(hips, p_com, np.zeros((3, 1)), 0.25)
     npt.assert_allclose(p_des[:2, :], cfg.hip_location_bf[:2, :], atol=1e-15)
 
 
@@ -250,3 +253,36 @@ def test_horizon_plan_rejects_inconsistent_shapes(field, bad):
     kwargs[field] = bad
     with pytest.raises(ValueError, match=field):
         HorizonPlan(**kwargs)
+
+
+def test_raibert_does_not_mutate_the_hip_positions_it_is_given():
+    """Plant 가 준 배열을 제자리 수정하면 Plant 내부가 오염된다.
+
+    p_feet_des_W[2,:] = 0 이 입력 배열에 그대로 쓰이면, MuJoCoPlant 가
+    hip_positions_W() 로 복사본을 주지 않는 순간 엔진 상태가 망가진다.
+    호출자의 방어에 기대지 않고 여기서 끊는다.
+    """
+    hips = np.array([[0.3, 0.3, -0.3, -0.3],
+                     [-0.128, 0.128, -0.128, 0.128],
+                     [0.44, 0.44, 0.44, 0.44]])
+    before = hips.copy()
+    raibert_footholds(hips, np.zeros((3, 1)), np.zeros((3, 1)), 0.25)
+    npt.assert_array_equal(hips, before)
+
+
+def test_raibert_is_plant_neutral():
+    """힙 위치만 주면 되고 자세 행렬이나 config 를 몰라도 된다.
+
+    같은 힙 위치를 주면 그것이 SRBD 에서 왔든 MuJoCo 에서 왔든 결과가 같다 -
+    이 성질이 'Controller 가 Plant 종류를 모른다'의 구체적 의미다.
+    """
+    hips = np.array([[0.31, 0.29, -0.30, -0.30],
+                     [-0.13, 0.12, -0.128, 0.128],
+                     [0.43, 0.44, 0.45, 0.44]])
+    p_com = np.array([[0.05], [0.0], [0.34]])
+    v = np.array([[0.7], [-0.2], [0.0]])
+    p_des, r_des = raibert_footholds(hips, p_com, v, 0.25)
+
+    npt.assert_allclose(p_des[:2], hips[:2] + 0.125 * v[:2], atol=1e-15)
+    npt.assert_allclose(p_des[2], 0.0, atol=1e-15)
+    npt.assert_allclose(r_des, p_des - p_com, atol=1e-15)

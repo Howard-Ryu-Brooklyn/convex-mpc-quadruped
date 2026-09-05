@@ -126,7 +126,13 @@ class MuJoCoPlant(PlantBase):
         mujoco.mj_forward(self._model, self._data)
         rpy0 = matrix_to_rpy(self._data.xmat[self._trunk_id])
         self._yaw = AngleUnwrapper(initial_angle_rad=float(rpy0[2]))
+        # 토크 진단을 지지/스윙으로 나눠 기록한다. 합쳐 두면 '한계를 넘었다'
+        # 까지만 알고 '어느 쪽을 줄여야 하는가'는 모른다. 진단의 입도가 곧
+        # 대응의 해상도다.
         self._max_abs_torque = 0.0
+        self._max_torque_stance = 0.0
+        self._max_torque_swing = 0.0
+        self._t_at_max_torque = 0.0
 
     # ── PlantBase 계약 ────────────────────────────────────────────────
     @property
@@ -246,11 +252,18 @@ class MuJoCoPlant(PlantBase):
                 tau = J_leg.T @ (f_task + f_ff) + bias[dofs]
 
             tau_all[self._act_idx[leg]] = tau
+            peak = float(np.abs(tau).max())
+            if command.is_stance[leg]:
+                self._max_torque_stance = max(self._max_torque_stance, peak)
+            else:
+                self._max_torque_swing = max(self._max_torque_swing, peak)
 
         # 토크 한계는 엔진의 forcerange 가 강제하지만, 우리가 얼마나 요구했는지는
         # 남겨 둔다. 실기 이관에서 '시뮬에서는 되던데'의 정체가 대개 이것이다.
-        self._max_abs_torque = max(self._max_abs_torque,
-                                   float(np.abs(tau_all).max()))
+        peak_all = float(np.abs(tau_all).max())
+        if peak_all > self._max_abs_torque:
+            self._max_abs_torque = peak_all
+            self._t_at_max_torque = float(d.time)
         d.ctrl[:] = tau_all
         mj.mj_step(m, d)
 
@@ -297,6 +310,21 @@ class MuJoCoPlant(PlantBase):
         그 경우 시뮬 결과는 실기에서 재현되지 않는다.
         """
         return self._max_abs_torque
+
+    @property
+    def max_torque_stance_nm(self) -> float:
+        """지지 다리에 지령한 토크 최댓값 [Nm]. MPC 지면반력이 원인일 때 커진다."""
+        return self._max_torque_stance
+
+    @property
+    def max_torque_swing_nm(self) -> float:
+        """스윙 다리에 지령한 토크 최댓값 [Nm]. swing_omega_n 이 원인일 때 커진다."""
+        return self._max_torque_swing
+
+    @property
+    def time_at_max_torque_s(self) -> float:
+        """최대 토크가 나온 시각 [s]. 초기 과도인지 정상 보행 중인지 가른다."""
+        return self._t_at_max_torque
 
     @property
     def time(self) -> float:

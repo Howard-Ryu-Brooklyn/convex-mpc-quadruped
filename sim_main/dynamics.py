@@ -103,6 +103,16 @@ class SRBDynamics(PlantBase):
         """현재 모터 각도 [q1, q2, a3]^T (3x4)"""
         return self.q
     
+    def hip_positions_W(self):
+        """(3,4) 네 고관절의 월드 좌표 (PlantBase.hip_positions_W 구현).
+
+        결함 9 주의: self.Rw_b 는 step() 초반에 갱신되므로 step() 이후에
+        읽으면 한 dt 만큼 최신이지만, MPC 틱에서 읽는 시점 기준으로는 예전
+        레거시 프로퍼티(robot.RW_B)와 같은 값이다. 즉 이 교체는 수치적으로
+        중립이며, 지연 자체는 별도 스텝에서 다룬다.
+        """
+        return self.pos + self.Rw_b @ self.hip_offsets_body
+
     @property
     def feet_local_B(self):
         """(3,4) 고관절 기준 발 위치 [m], 바디 프레임. 로깅·시각화용.

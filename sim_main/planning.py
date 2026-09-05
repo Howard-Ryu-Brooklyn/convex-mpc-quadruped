@@ -67,11 +67,10 @@ def build_reference_trajectory(
 
 
 def raibert_footholds(
+    hip_positions_W: NDArray[np.float64],
     p_com_W: NDArray[np.float64],
-    R_W_B: NDArray[np.float64],
     v_com_W: NDArray[np.float64],
     T_stance: float,
-    hip_location_bf: NDArray[np.float64] | None = None,
 ):
     """Raibert heuristic 으로 다음 착지점을 계산한다.
 
@@ -80,17 +79,34 @@ def raibert_footholds(
     직관: 지지 구간의 절반만큼 앞에 발을 두면, 몸이 그 위를 지나갈 때
     발이 몸통 아래 중앙에 오게 되어 속도가 유지된다.
 
+    ★ 힙 위치를 (p_com, R_W_B, hip_location_bf) 에서 유도하지 않고 인자로
+      받는 이유 — Plant 중립성
+      예전 시그니처는 자세 행렬과 config 의 힙 배치로부터 힙 위치를 **계산**
+      했다. 그것은 "이 로봇의 힙은 몸통에 강체로 붙어 있고 그 오프셋은 config
+      에 있다"는 가정을 계획 계층에 박아 넣는 것이다.
+
+      MuJoCoPlant 는 힙 위치를 물리 엔진이 이미 알고 있다(data.xpos). 실기
+      에서는 관절각과 실제 링크 치수로부터 나온다. 그 지식의 주인은 Plant 다.
+      계획 계층은 "힙이 여기 있다"만 받으면 되고, 그러면 같은 함수가 SRBD /
+      MuJoCo / 실기 어디에나 그대로 꽂힌다.
+
+      이 인자 하나를 바꾸는 것이 'Controller 가 Plant 종류를 모른다'를
+      규율이 아니라 시그니처로 강제하는 지점이다.
+
+    Args:
+        hip_positions_W: (3,4) 네 고관절의 월드 좌표. Plant 가 준다.
+        p_com_W: (3,1) CoM 월드 좌표.
+        v_com_W: (3,1) CoM 월드 속도.
+        T_stance: 지지 구간 길이 [s].
+
     Returns:
         (p_feet_des_W, r_feet_des_W) — 절대 착지점과 CoM 기준 상대 벡터.
         두 값을 모두 돌려주는 이유는 스윙 궤적은 절대 위치를, MPC 토크암은
         상대 벡터를 필요로 하기 때문이다. 하나에서 다른 하나를 매번 유도하면
         어느 쪽을 넘겼는지 헷갈린다 (결함 5 가 그 사고였다).
     """
-    if hip_location_bf is None:
-        hip_location_bf = cfg.hip_location_bf
-
-    hip_W = p_com_W + R_W_B @ hip_location_bf          # (3,1) + (3,3)@(3,4)
-    p_feet_des_W = hip_W + (T_stance / 2.0) * v_com_W
+    p_feet_des_W = hip_positions_W + (T_stance / 2.0) * v_com_W
+    p_feet_des_W = p_feet_des_W.copy()
     p_feet_des_W[2, :] = 0.0                            # 지면 높이로 투영
     return p_feet_des_W, p_feet_des_W - p_com_W
 

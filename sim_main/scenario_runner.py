@@ -209,8 +209,12 @@ def run_scenario(
 
             # 2) Raibert 발판 계획.
             #    p_feet_des_wf 는 red 루프의 스윙 궤적 목표점으로도 쓰인다.
+            # 힙 위치의 출처는 Plant 다. 예전에는 여기서 robot.P 와 robot.RW_B
+            # 를 꺼내 계획 함수가 직접 계산했는데, 그러면 계획 계층이 '이 로봇의
+            # 힙은 몸통에 강체로 붙어 있다'를 알아야 한다. MuJoCoPlant 로 바꿔
+            # 꽂으려면 그 가정이 사라져야 한다.
             p_feet_des_wf, r_feet_des_wf = raibert_footholds(
-                robot.P, robot.RW_B, X_current[9:12, 0:1].copy(), T_stance
+                robot.hip_positions_W(), robot.P, X_current[9:12, 0:1].copy(), T_stance
             )
 
             # 3) horizon 각 스텝의 접촉 스케줄 예측
