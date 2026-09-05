@@ -169,6 +169,34 @@ def run_scenario(
         #   루프 전체를 (3,) 로 옮기는 것은 별도 단계로 다룬다.
         X_current = robot.observe().to_mpc_vector().reshape(13, 1)
         
+        # ── 발판 계획은 스윙 루프 주기로 갱신한다 (결함 13) ─────────────
+        # 예전에는 MPC 브랜치 안에 있었다. 그래서 목표가 33.3ms 마다 계단식으로
+        # 튀었고, 스윙 후반(위상 0.94, ∂B/∂p3 ≈ 0.99)에서 그 점프가 거의 그대로
+        # 지령 위치의 점프가 됐다.
+        #
+        # 실측(MuJoCo, trot 0.5m/s):
+        #   Raibert 목표 MPC틱간 점프   19.7 mm
+        #   지령 위치 스텝간 점프       17.0 mm   <- 0.11ms 사이에!
+        #                                          정상 스윙 속도로는 0.16mm
+        #   스윙 토크  omega_n=120: 70 Nm / 240: 274 Nm  (∝ omega_n^2)
+        # 토크가 omega_n^2 로 커진다는 것이 '고정 오차 x 강성'의 서명이었고,
+        # 그 고정 오차가 이 계단이었다.
+        #
+        # 착지 직전에 발이 17mm 옆으로 튀는 것은 토크 초과보다 나쁘다 -
+        # 발을 옆으로 던지면서 착지시키는 것이기 때문이다.
+        #
+        # 발판 계획이 MPC 주기를 물려받을 이유가 없다. Raibert 는 힙 위치와
+        # 속도의 곱 하나이므로 1kHz 로 돌려도 비용이 없고, 계단이 33배 작아져
+        # 연속적 드리프트가 된다.
+        #
+        # 힙 위치의 출처는 Plant 다. 계획 계층이 '힙은 몸통에 강체로 붙어
+        # 있다'를 알 필요가 없어야 MuJoCoPlant 로 바꿔 꽂을 수 있다.
+        if clock.is_swing_tick(sim_cnt):
+            p_feet_des_wf, r_feet_des_wf = raibert_footholds(
+                robot.hip_positions_W(), robot.P,
+                X_current[9:12, 0:1].copy(), T_stance
+            )
+
         if np.isnan(X_current).any() or np.isinf(X_current).any():
             diverged = True
             break
@@ -205,16 +233,6 @@ def run_scenario(
             # 1) 참조 상태 궤적 (속도 추종 모드 — planning.py 의 설계 메모 참조)
             x_ref_traj, yaw_traj = build_reference_trajectory(
                 X_current, v_des, omega_z_des, target_height_com, horizon, mpc_dt
-            )
-
-            # 2) Raibert 발판 계획.
-            #    p_feet_des_wf 는 red 루프의 스윙 궤적 목표점으로도 쓰인다.
-            # 힙 위치의 출처는 Plant 다. 예전에는 여기서 robot.P 와 robot.RW_B
-            # 를 꺼내 계획 함수가 직접 계산했는데, 그러면 계획 계층이 '이 로봇의
-            # 힙은 몸통에 강체로 붙어 있다'를 알아야 한다. MuJoCoPlant 로 바꿔
-            # 꽂으려면 그 가정이 사라져야 한다.
-            p_feet_des_wf, r_feet_des_wf = raibert_footholds(
-                robot.hip_positions_W(), robot.P, X_current[9:12, 0:1].copy(), T_stance
             )
 
             # 3) horizon 각 스텝의 접촉 스케줄 예측

@@ -105,6 +105,16 @@ def run_scenario_mujoco(
     n_event_solves = 0
     F_G = np.zeros((3, 4))
 
+    # ── 결함 13 진단: 스윙 지령 위치가 계단식으로 튀는가 ────────────────
+    # 토크가 omega_n^2 로 커진다는 것은 '고정된 위치 오차 x 강성'이라는 뜻이고,
+    # 그렇다면 어딘가에 계단 입력이 있어야 한다. 합성 상황이 아니라 실제 보행
+    # 중에 재야 한다 - 지령이 한 물리 스텝(0.11ms) 사이에 얼마나 튀는가.
+    prev_cmd_feet = None
+    max_cmd_jump_m = 0.0            # 스윙 다리 지령 위치의 스텝간 최대 점프
+    phase_at_max_jump = 0.0
+    max_target_jump_m = 0.0         # Raibert 목표의 MPC 틱간 최대 점프(스윙 다리)
+    prev_target = None
+
     for sim_cnt in range(clock.n_steps):
         current_time = clock.time_at(sim_cnt)
 
@@ -116,6 +126,39 @@ def run_scenario_mujoco(
         state = plant.observe()
         X_current = state.to_mpc_vector().reshape(13, 1)
         p_com = state.p_com_W.reshape(3, 1)
+
+        # ── 발판 계획은 스윙 루프 주기로 갱신한다 (결함 13) ─────────────
+        # 예전에는 MPC 브랜치 안에 있었다. 그래서 목표가 33.3ms 마다 계단식으로
+        # 튀었고, 스윙 후반(위상 0.94, ∂B/∂p3 ≈ 0.99)에서 그 점프가 거의 그대로
+        # 지령 위치의 점프가 됐다.
+        #
+        # 실측(MuJoCo, trot 0.5m/s):
+        #   Raibert 목표 MPC틱간 점프   19.7 mm
+        #   지령 위치 스텝간 점프       17.0 mm   <- 0.11ms 사이에!
+        #                                          정상 스윙 속도로는 0.16mm
+        #   스윙 토크  omega_n=120: 70 Nm / 240: 274 Nm  (∝ omega_n^2)
+        # 토크가 omega_n^2 로 커진다는 것이 '고정 오차 x 강성'의 서명이었고,
+        # 그 고정 오차가 이 계단이었다.
+        #
+        # 착지 직전에 발이 17mm 옆으로 튀는 것은 토크 초과보다 나쁘다 -
+        # 발을 옆으로 던지면서 착지시키는 것이기 때문이다.
+        #
+        # 발판 계획이 MPC 주기를 물려받을 이유가 없다. Raibert 는 힙 위치와
+        # 속도의 곱 하나이므로 1kHz 로 돌려도 비용이 없고, 계단이 33배 작아져
+        # 연속적 드리프트가 된다.
+        #
+        # 힙 위치는 Plant 가 준다. MuJoCo 는 엔진이 이미 알고 있다(data.xpos).
+        if clock.is_swing_tick(sim_cnt):
+            p_feet_des_wf, r_feet_des_wf = raibert_footholds(
+                plant.hip_positions_W(), p_com,
+                X_current[9:12, 0:1].copy(), T_stance)
+
+            # 진단: 공중에 있는 다리의 목표가 갱신 사이에 얼마나 움직였는가.
+            # 결함 13 수정 전에는 이 간격이 MPC 주기(33.3ms)라 19.7mm 였다.
+            if prev_target is not None and (~is_stance_now).any():
+                moved = np.abs(p_feet_des_wf - prev_target)[:, ~is_stance_now]
+                max_target_jump_m = max(max_target_jump_m, float(moved.max()))
+            prev_target = p_feet_des_wf.copy()
 
         if not np.isfinite(X_current).all():
             diverged = True
@@ -136,11 +179,6 @@ def run_scenario_mujoco(
                 X_current, v_des, omega_z_deg_s * DEG2RAD,
                 target_height_com, horizon, mpc_dt)
 
-            # 힙 위치는 Plant 가 준다. MuJoCo 는 엔진이 이미 알고 있다.
-            p_feet_des_wf, r_feet_des_wf = raibert_footholds(
-                plant.hip_positions_W(), p_com,
-                X_current[9:12, 0:1].copy(), T_stance)
-
             is_stance_schedule = build_contact_schedule(
                 current_time, gait_period, gait_duty, gait_phase_offset,
                 horizon, mpc_dt)
@@ -155,11 +193,20 @@ def run_scenario_mujoco(
             stance_mask_at_solve = is_stance_now
             F_G = np.array(fmpc).reshape(4, 3).T * stance_mask_at_solve
 
+
         # 🟥 스윙 궤적
         if clock.is_swing_tick(sim_cnt):
             p_feet_wf = swing.update(
                 is_stance=is_stance_now, p_feet_W=p_feet_wf,
                 p_feet_target_W=p_feet_des_wf, dt=clock.swing_dt)
+
+        # 지령 위치의 스텝간 점프 (스윙 다리만). 이것이 PD 에 들어가는 입력이다.
+        if prev_cmd_feet is not None and (~is_stance_now).any():
+            jump = np.abs(p_feet_wf - prev_cmd_feet)[:, ~is_stance_now].max()
+            if jump > max_cmd_jump_m:
+                max_cmd_jump_m = float(jump)
+                phase_at_max_jump = float(swing.phase[~is_stance_now].max())
+        prev_cmd_feet = p_feet_wf.copy()
 
         # 🟩 지령 -> 관절 토크 -> 엔진 (Plant 의 책임)
         plant.step(ControlCommand(
@@ -211,6 +258,10 @@ def run_scenario_mujoco(
         "max_torque_stance_nm": np.asarray(plant.max_torque_stance_nm),
         "max_torque_swing_nm":  np.asarray(plant.max_torque_swing_nm),
         "t_at_max_torque_s":    np.asarray(plant.time_at_max_torque_s),
+        # 결함 13 진단
+        "max_cmd_jump_m":       np.asarray(max_cmd_jump_m),
+        "phase_at_max_jump":    np.asarray(phase_at_max_jump),
+        "max_target_jump_m":    np.asarray(max_target_jump_m),
         "max_yaw_step":   np.asarray(plant.max_yaw_step_rad),
         # ── 시각화용 ────────────────────────────────────────────────
         "R_W_B":          h["R"],
