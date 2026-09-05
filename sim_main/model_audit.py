@@ -72,6 +72,8 @@ class ModelFacts:
     joint_damping: float
     joint_frictionloss: float
     n_actuators: int
+    foot_solimp_width_m: float = 0.0   # 접촉이 완전 강체가 되는 침투 깊이
+    n_foot_collision_geoms: int = 1    # 발 하나당 지면에 닿는 충돌 geom 수
 
 
 @dataclass(frozen=True)
@@ -189,6 +191,25 @@ def audit(facts: ModelFacts, *, strict: bool = True) -> list[Mismatch]:
             "마찰 원뿔 형상", "pyramidal (MPC 가정)", facts.cone_type, None, True,
             f"MPC 는 대각선 방향으로 유효 mu={pyramid_effective_mu(facts.floor_friction_mu):.3f} "
             f"까지 명령할 수 있으나 엔진은 {facts.floor_friction_mu:.3f} 에서 미끄러뜨린다.",
+        ))
+
+    if facts.foot_solimp_width_m > 1e-4:
+        out.append(Mismatch(
+            "접촉 강성", "강체 (SRBD)",
+            f"soft, solimp width {facts.foot_solimp_width_m*1000:.0f} mm",
+            None, True,
+            "SRBD 는 발 위치를 운동학적으로 강제한다(무한 강성). MuJoCo 는 "
+            "체중에서 발이 ~11mm 가라앉는다. 지면 높이 z=0 이라는 기하학적 "
+            "가정과 실제 접촉면이 그만큼 어긋난다.",
+        ))
+
+    if facts.n_foot_collision_geoms > 1:
+        out.append(Mismatch(
+            "발 접촉 geom 수", 1, facts.n_foot_collision_geoms, None, True,
+            "발 구(r=25mm)와 종아리 캡슐 아래 반구(r=15mm)가 같은 점을 중심으로 "
+            "겹쳐 있다. 발이 10mm 넘게 잠기면 캡슐도 닿아 하중이 둘로 나뉜다. "
+            "두 접촉점의 x,y 가 같으므로 토크암은 어긋나지 않지만, 유효 접촉 "
+            "강성이 침투 깊이에 따라 계단식으로 커진다.",
         ))
 
     if facts.joint_damping > 0 or facts.joint_frictionloss > 0:
@@ -310,6 +331,17 @@ def extract_model_facts(model, data) -> ModelFacts:
         if model.geom_bodyid[gid] == calf_id and model.geom_type[gid] == mujoco.mjtGeom.mjGEOM_SPHERE:
             radius = float(model.geom_size[gid][0])
 
+    # 발 지점에 닿을 수 있는 충돌 geom 수와 접촉 소프트니스.
+    # 둘 다 SRBD 의 '강체 + 점 접촉' 이상화와 다른 지점이다.
+    solimp_width = 0.0
+    n_foot_geoms = 0
+    for gid in range(model.ngeom):
+        if model.geom_bodyid[gid] != calf_id or model.geom_contype[gid] == 0:
+            continue
+        n_foot_geoms += 1
+        if model.geom_type[gid] == mujoco.mjtGeom.mjGEOM_SPHERE:
+            solimp_width = float(model.geom_solimp[gid][2])
+
     cone = "elliptic" if model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC else "pyramidal"
     frange = np.abs(model.actuator_forcerange).max() if model.nu else 0.0
 
@@ -325,4 +357,6 @@ def extract_model_facts(model, data) -> ModelFacts:
         joint_damping=float(np.max(model.dof_damping[6:])) if model.nv > 6 else 0.0,
         joint_frictionloss=float(np.max(model.dof_frictionloss[6:])) if model.nv > 6 else 0.0,
         n_actuators=int(model.nu),
+        foot_solimp_width_m=solimp_width,
+        n_foot_collision_geoms=n_foot_geoms,
     )
