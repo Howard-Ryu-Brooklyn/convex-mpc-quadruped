@@ -8,7 +8,6 @@ import numpy.testing as npt
 import pytest
 
 import config as cfg
-from config import get_13d_state
 from dynamics import SRBDynamics
 from kinematics import get_q, get_r_feet_bf
 from plant_base import PlantBase
@@ -65,7 +64,7 @@ def test_observe_matches_legacy_properties():
     npt.assert_array_equal(s.omega_W, plant.ANGVEL.flatten())
 
 
-def test_observe_to_mpc_vector_matches_get_13d_state():
+def test_observe_to_mpc_vector_matches_legacy_layout():
     """RobotState 경로가 기존 get_13d_state 경로와 비트 단위로 같은가.
 
     1-5 에서 메인 루프를 observe() 로 갈아끼울 때 이 동등성이 그 교체를
@@ -76,7 +75,9 @@ def test_observe_to_mpc_vector_matches_get_13d_state():
     for _ in range(50):
         plant.step(forces, r_feet)
 
-    legacy = get_13d_state(plant.ANG, plant.P, plant.ANGVEL, plant.V).flatten()
+    legacy = np.vstack(
+        (plant.ANG, plant.P, plant.ANGVEL, plant.V, [[1.0]])
+    ).flatten()
     npt.assert_array_equal(plant.observe().to_mpc_vector(), legacy)
 
 

@@ -51,11 +51,14 @@ hip_location_bf = np.array([
         ]).T
 
 
-# 기구학 계산은 kinematics.py 로, 회전 변환은 rotations.py 로 옮겼다.
-# 이 파일은 로봇 상수만 담는다.
-# TODO(Step 1-5): get_13d_state 는 RobotState.to_mpc_vector 로 대체된다.
-
-
-def get_13d_state(ang, p, angvel, v):
-    # x = [Roll, Pitch, Yaw, X, Y, Z, Wx, Wy, Wz, Vx, Vy, Vz, gravity=1.0]^T
-    return np.vstack((ang, p, angvel, v, np.array([[1.0]])))
+# ─────────────────────────────────────────────────────────────────────
+# 이 파일은 이제 로봇 상수만 담는다.
+#   기구학  -> kinematics.py
+#   회전    -> rotations.py
+#   궤적    -> bezier.py
+#   상태    -> robot_types.RobotState (get_13d_state 를 대체)
+#
+# TODO(Step 6): 이 상수들을 dataclass + YAML 로 옮긴다. 지금은 모듈 전역이라
+#   설정을 바꿔가며 스윕을 돌릴 수 없고, 두 설정을 한 프로세스에서 비교할 수도
+#   없다. MPC 가중치(L_w_*) 튜닝이 그 첫 사용처가 된다.
+# ─────────────────────────────────────────────────────────────────────

@@ -14,8 +14,11 @@ from robot_types import ControlOutput, FootState, Leg, RobotState, SolverStatus
 
 
 # ── RobotState ──────────────────────────────────────────────────────────
-def test_to_mpc_vector_matches_legacy():
-    """새 타입의 13차원 변환이 기존 get_13d_state 와 비트 단위로 같은가.
+def test_to_mpc_vector_matches_legacy_layout():
+    """13차원 변환이 기존 get_13d_state 의 배치와 비트 단위로 같은가.
+
+    get_13d_state 는 1-5b 에서 제거됐다. 그 수식을 여기 인라인해 두어
+    배치 보장이 코드에서 사라지지 않게 한다.
 
     이 동등성이 성립해야 나중의 교체가 안전하다.
     """
@@ -23,11 +26,9 @@ def test_to_mpc_vector_matches_legacy():
     for _ in range(200):
         rpy, p, omega, v = (rng.normal(size=3) for _ in range(4))
 
-        legacy = cfg.get_13d_state(
-            rpy.reshape(3, 1),
-            p.reshape(3, 1),
-            omega.reshape(3, 1),
-            v.reshape(3, 1),
+        legacy = np.vstack(
+            (rpy.reshape(3, 1), p.reshape(3, 1),
+             omega.reshape(3, 1), v.reshape(3, 1), [[1.0]])
         ).flatten()
         new = RobotState(
             p_com_W=p, v_com_W=v, rpy_W=rpy, omega_W=omega

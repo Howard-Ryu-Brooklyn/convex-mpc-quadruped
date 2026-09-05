@@ -121,8 +121,9 @@ class RobotState:
         """MPC 용 13차원 상태 [Theta, p, omega, v, 1.0]^T.
 
         마지막 1.0 은 중력을 선형 시스템에 포함시키기 위한 상수항이다.
-        기존 config.get_13d_state 와 수치적으로 동일해야 하며,
-        tests/test_types.py::test_to_mpc_vector_matches_legacy 가 이를 검증한다.
+        배치는 구 config.get_13d_state (1-5b 에서 제거) 와 동일해야 하며,
+        tests/test_types.py::test_to_mpc_vector_matches_legacy_layout 이
+        그 수식을 인라인해 비트 단위로 검증한다.
         """
         return np.concatenate(
             [self.rpy_W, self.p_com_W, self.omega_W, self.v_com_W, [1.0]]

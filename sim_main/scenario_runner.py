@@ -6,7 +6,7 @@
 import numpy as np
 import config as cfg
 from bezier import bezier
-from config import get_13d_state
+from robot_types import RobotState
 from kinematics import get_q, get_r_feet_bf
 from planning import (
     build_contact_schedule,
@@ -73,7 +73,10 @@ def run_scenario(
     V0 = np.zeros((3, 1))
     ANG0 = np.array([[0.0*DEG2RAD], [0.0*DEG2RAD], [0.0*DEG2RAD]]) # Yaw 90도 시작 원하시면 [0, 0, 90*DEG2RAD]
     ANGVEL0 = np.zeros((3, 1))
-    X0 = get_13d_state(ANG0, P0, ANGVEL0, V0)
+    X0 = RobotState(
+        p_com_W=P0.flatten(), v_com_W=V0.flatten(),
+        rpy_W=ANG0.flatten(), omega_W=ANGVEL0.flatten(),
+    ).to_mpc_vector().reshape(13, 1)
 
     g_vec = np.array([0,0,abs(cfg.m*cfg.gz/4)])
     F_G0 = np.tile(g_vec.reshape(3,1),(1,4))
@@ -174,7 +177,16 @@ def run_scenario(
             pass    
         
             current_time = sim_cnt * sim_ts
-            X_current = get_13d_state(robot.ANG, robot.P, robot.ANGVEL, robot.V)
+            # 살아있는 참조 4개를 꺼내 조립하는 대신 불변 스냅샷 하나를 받는다.
+            # test_observe_to_mpc_vector_matches_legacy_layout 가 두 경로의
+            # 비트 단위 동등성을 증명해두었으므로 이 교체는 기계적이다.
+            #
+            # (3,1) 로 reshape 하는 이유 — 형상 부채
+            #   이 루프는 전부 (3,1) 열벡터 규약으로 쓰여 있는데 RobotState 는
+            #   numpy 관용에 맞춰 (3,) 을 쓴다. 섞으면 조용한 브로드캐스팅
+            #   버그가 난다: (3,) + (3,4) 는 에러 없이 '틀린 축으로' 퍼진다.
+            #   루프 전체를 (3,) 로 옮기는 것은 별도 단계로 다룬다.
+            X_current = robot.observe().to_mpc_vector().reshape(13, 1)
             
             if np.isnan(X_current).any() or np.isinf(X_current).any():
                 diverged = True
