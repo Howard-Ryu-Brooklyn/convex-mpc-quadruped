@@ -11,7 +11,7 @@ import config as cfg
 from dynamics import SRBDynamics
 from kinematics import get_q, get_r_feet_bf
 from plant_base import PlantBase
-from robot_types import RobotState
+from robot_types import ControlCommand, RobotState
 
 HEIGHT = cfg.leg_length_straight / 2      # 0.34 m
 
@@ -31,6 +31,20 @@ def make_plant(dt=1.0 / 9000, height=HEIGHT):
         cfg.hip_location_bf, r_feet_wf,
         [cfg.Ilink_hip, cfg.Ilink_upper, cfg.Ilink_lower],
     ), r_feet_wf
+
+
+def cmd(forces, r_feet, is_stance=None):
+    """테스트용 ControlCommand 생성기.
+
+    기본은 '네 다리 전부 접지'다. 대부분의 플랜트 테스트는 접촉 상태가 아니라
+    적분기의 물리를 보기 때문이며, 이렇게 두면 스윙 다리 힘 검사가 걸리지 않는다.
+    """
+    if is_stance is None:
+        is_stance = np.ones(4, dtype=bool)
+    return ControlCommand(forces_W=np.asarray(forces, dtype=float),
+                          r_feet_W=np.asarray(r_feet, dtype=float),
+                          is_stance=np.asarray(is_stance, dtype=bool))
+
 
 
 # ── 인터페이스 ───────────────────────────────────────────────────────────
@@ -54,7 +68,7 @@ def test_observe_matches_legacy_properties():
     plant, r_feet = make_plant()
     forces = np.tile(np.array([[0.0], [0.0], [abs(cfg.m * cfg.gz) / 4]]), (1, 4))
     for _ in range(50):
-        plant.step(forces, r_feet)
+        plant.step(cmd(forces, r_feet))
 
     s = plant.observe()
     assert isinstance(s, RobotState)
@@ -73,7 +87,7 @@ def test_observe_to_mpc_vector_matches_legacy_layout():
     plant, r_feet = make_plant()
     forces = np.tile(np.array([[0.0], [0.0], [abs(cfg.m * cfg.gz) / 4]]), (1, 4))
     for _ in range(50):
-        plant.step(forces, r_feet)
+        plant.step(cmd(forces, r_feet))
 
     legacy = np.vstack(
         (plant.ANG, plant.P, plant.ANGVEL, plant.V, [[1.0]])
@@ -88,7 +102,7 @@ def test_observe_returns_a_snapshot_not_a_live_reference():
     p_recorded = before.p_com_W.copy()
 
     for _ in range(10):
-        plant.step(np.zeros((3, 4)), r_feet)
+        plant.step(cmd(np.zeros((3, 4)), r_feet))
 
     npt.assert_array_equal(before.p_com_W, p_recorded)
     assert not np.array_equal(plant.observe().p_com_W, p_recorded)
@@ -106,7 +120,7 @@ def test_legacy_property_is_a_live_reference():
     live = plant.P
     z_before = float(live[2, 0])
     for _ in range(10):
-        plant.step(np.zeros((3, 4)), r_feet)
+        plant.step(cmd(np.zeros((3, 4)), r_feet))
     assert float(live[2, 0]) != z_before      # 들고 있던 배열이 저절로 바뀐다
 
 
@@ -124,7 +138,7 @@ def test_free_fall_matches_discrete_integrator_exactly():
     z0 = float(plant.P[2, 0])
 
     for _ in range(n_steps):
-        plant.step(np.zeros((3, 4)), r_feet)
+        plant.step(cmd(np.zeros((3, 4)), r_feet))
 
     expected = z0 + cfg.gz * dt**2 * n_steps * (n_steps + 1) / 2
     npt.assert_allclose(plant.observe().p_com_W[2], expected, rtol=1e-12)
@@ -143,7 +157,7 @@ def test_free_fall_approaches_analytic_solution():
         plant, r_feet = make_plant(dt=dt)
         z0 = float(plant.P[2, 0])
         for _ in range(round(T / dt)):
-            plant.step(np.zeros((3, 4)), r_feet)
+            plant.step(cmd(np.zeros((3, 4)), r_feet))
         analytic = z0 + 0.5 * cfg.gz * T**2
         errors[dt] = abs(float(plant.observe().p_com_W[2]) - analytic)
 
@@ -165,7 +179,7 @@ def test_static_stance_holds_height():
     z0 = float(plant.P[2, 0])
 
     for _ in range(900):
-        plant.step(forces, r_feet)
+        plant.step(cmd(forces, r_feet))
 
     npt.assert_allclose(plant.observe().p_com_W[2], z0, atol=1e-12)
     npt.assert_allclose(plant.observe().v_com_W, np.zeros(3), atol=1e-12)

@@ -228,3 +228,86 @@ class HorizonPlan:
         TODO(Step 1-4b): MPC 가 is_stance 를 직접 받도록 바꾸고 이 프로퍼티를 제거한다.
         """
         return 1.0 - self.is_stance.astype(float)
+
+
+@dataclass(frozen=True)
+class ControlCommand:
+    """제어기가 한 물리 스텝 동안 Plant 에 내리는 지령 전부.
+
+    왜 인터페이스를 이렇게 넓히는가
+    ─────────────────────────────
+    1-3 에서 PlantBase.step(forces_W, r_feet_W) 로 시작했다. SRBD 에는
+    충분했지만 MuJoCo 에는 부족하다. 이유는 다리의 두 상태가 **다른 종류의
+    지령**을 받기 때문이다.
+
+        스탠스 다리 : 힘을 받는다      -> tau = J^T f
+        스윙 다리   : 궤적을 받는다     -> tau = J^T (Kp e + Kd e_dot) + tau_ff(a_des)
+
+    SRBD 는 발 위치를 운동학적으로 강제하므로 스윙 지령이 위치 하나로 충분했다.
+    실제 물리 엔진은 발을 순간이동시킬 수 없으니 속도·가속도까지 필요하다.
+
+    선택지는 셋이었다.
+      (A) Plant 가 스윙 궤적 생성기를 내부에 갖는다  -> 계층 위반. 궤적은 계획이지 물리가 아니다.
+      (B) ForcePlant / TorquePlant 로 인터페이스를 쪼갠다 -> 제어기가 Plant 종류를
+          알아야 하므로 추상화가 무너진다. Step 10(실기)에서 다시 쪼개야 한다.
+      (C) 지령을 한 묶음으로 넓히고, 필요 없는 필드는 Plant 가 무시한다.
+
+    (C) 를 택했다. SRBD 가 v/a 를 무시하는 것은 게으름이 아니라 물리적으로
+    정직한 해석이다 — "이상적 플랜트라 저수준 추종이 완벽하다". 그리고 실기에
+    내려보내는 패킷이 정확히 이 묶음이라, 경계가 현실과 같은 모양이 된다.
+
+    위치를 r_feet_W(CoM 상대) 하나로만 들고 있는 이유
+    ────────────────────────────────────────────
+    절대 위치 p_feet_W 를 함께 넣으면 두 값이 갈라질 수 있다. 결함 5 가 정확히
+    그 사고였다(절대 위치 자리에 상대 벡터를 넣어 목표점이 지면 34cm 아래를
+    향했다). Plant 는 자기 CoM 을 알고 있으므로 p = r + p_com 으로 언제든
+    복원한다. **한 사실은 한 곳에만 둔다.**
+
+    Attributes:
+        forces_W: (3,4) 각 발의 지면 반발력 [N], world frame.
+            스윙 다리는 **정확히 0** 이어야 한다 (__post_init__ 에서 검사).
+        r_feet_W: (3,4) CoM 기준 발 위치 [m], world 정렬.
+            스탠스는 접지 위치, 스윙은 궤적의 현재 목표점.
+        is_stance: (4,) True = 접지.
+        v_feet_W: (3,4) 스윙 발 목표 속도 [m/s]. None 이면 미제공.
+        a_feet_W: (3,4) 스윙 발 목표 가속도 [m/s^2]. None 이면 미제공.
+            None 과 0 은 다르다 — 전자는 "안 줬다", 후자는 "0 을 지령했다".
+            토크 구동 Plant 는 None 을 받으면 명시적으로 거부해야 한다.
+    """
+
+    forces_W: Vec3x4
+    r_feet_W: Vec3x4
+    is_stance: Bool4
+    v_feet_W: Vec3x4 | None = None
+    a_feet_W: Vec3x4 | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("forces_W", "r_feet_W"):
+            arr = getattr(self, name)
+            if arr.shape != (3, 4):
+                raise ValueError(f"{name} shape must be (3, 4), got {arr.shape}")
+        if self.is_stance.shape != (4,):
+            raise ValueError(f"is_stance shape must be (4,), got {self.is_stance.shape}")
+
+        for name in ("v_feet_W", "a_feet_W"):
+            arr = getattr(self, name)
+            if arr is not None and arr.shape != (3, 4):
+                raise ValueError(f"{name} shape must be (3, 4), got {arr.shape}")
+
+        # 결함 7 을 규율이 아니라 타입으로 막는다.
+        # OSQP 는 fz in [0,0] 제약을 허용오차 안에서만 만족시키므로 스윙 다리에
+        # ~1e-4 N 의 잔류력이 남는다. 마스킹을 잊으면 공중에 뜬 다리에 토크가
+        # 새고, 원인이 '솔버 수렴 오차'라 로그만 봐서는 절대 못 찾는다.
+        # 물리적으로 반드시 성립해야 하는 조건은 구성 시점에 강제한다.
+        swing_force = self.forces_W[:, ~self.is_stance]
+        if swing_force.size and np.any(swing_force != 0.0):
+            worst = np.abs(swing_force).max()
+            raise ValueError(
+                "스윙 다리에 0 이 아닌 힘이 실렸다 (최대 "
+                f"{worst:.3e} N). 결함 7 — MPC 해에 접촉 마스크를 곱했는지 "
+                "확인할 것: forces_W * is_stance"
+            )
+
+    @property
+    def n_stance(self) -> int:
+        return int(np.count_nonzero(self.is_stance))

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from robot_types import RobotState, Vec3x4
+from robot_types import ControlCommand, RobotState
 
 
 class PlantBase(ABC):
@@ -38,15 +38,21 @@ class PlantBase(ABC):
         """물리 적분 주기 [s]."""
 
     @abstractmethod
-    def step(self, forces_W: Vec3x4, r_feet_W: Vec3x4) -> None:
+    def step(self, command: ControlCommand) -> None:
         """한 물리 스텝을 진행한다.
 
+        지령을 낱개 인자가 아니라 ControlCommand 하나로 받는 이유는
+        robot_types.ControlCommand 의 독스트링에 있다. 요약하면, 다리의 두
+        상태(스탠스/스윙)가 서로 다른 종류의 지령을 받고, 그 묶음이 실기에
+        내려보내는 패킷과 같은 모양이기 때문이다.
+
+        구현체는 자기가 쓰지 않는 필드를 무시해도 된다. 다만 **필요한데
+        None 인 필드는 조용히 0 으로 대체하지 말고 거부해야 한다** —
+        "안 줬다" 와 "0 을 지령했다" 는 다른 사실이다.
+
         Args:
-            forces_W: (3,4) 각 발에 작용하는 지면 반발력 [N], world frame.
-                스윙 다리는 0 이어야 한다. 접촉 마스킹은 호출자의 책임이다
-                (수치 솔버는 제약을 허용오차 안에서만 만족시키므로).
-            r_feet_W: (3,4) CoM 기준 발 위치 [m], world frame.
-                지지 다리는 접지 위치, 스윙 다리는 궤적 생성기의 현재 목표.
+            command: 이번 스텝의 지령. 스윙 다리 힘이 0 이라는 물리적 요건은
+                ControlCommand 구성 시점에 이미 검사되어 있다.
         """
 
     @abstractmethod

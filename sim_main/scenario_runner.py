@@ -8,6 +8,7 @@ import config as cfg
 from bezier import bezier
 from clock import MultiRateClock
 from history import HistoryLogger
+from robot_types import ControlCommand
 from kinematics import get_q, get_r_feet_bf
 from swing import SwingTrajectoryGenerator
 from planning import (
@@ -215,7 +216,8 @@ def run_scenario(
             # 물리적으로 반드시 성립해야 하는 조건은 솔버에 맡기지 않고
             # 출력단에서 강제한다. 마스크를 plan 에서 가져오므로 접촉 상태의
             # 출처가 하나로 유지된다 (별도 변수를 쓰면 갈라진다).
-            F_G = np.array(fmpc).reshape(4, 3).T * plan.is_stance[:, 0]
+            stance_mask_at_solve = plan.is_stance[:, 0]
+            F_G = np.array(fmpc).reshape(4, 3).T * stance_mask_at_solve
 
         # 🟥 상태 추정 및 스윙 제어기
         if clock.is_swing_tick(sim_cnt):
@@ -232,9 +234,44 @@ def run_scenario(
         # 🟩 
 
         r_feet_wf = p_feet_wf - robot.P
+
+        # 지령을 하나의 값으로 묶어 넘긴다. ControlCommand 가 구성 시점에
+        # '스윙 다리 힘 = 0' 을 검사하므로, 결함 7 의 마스킹을 빠뜨리면
+        # 조용히 틀린 궤적이 나오는 대신 여기서 즉시 터진다.
+        #
+        # is_stance 에 Sa_current(현재 접촉 상태)가 아니라 MPC 가 풀 때 쓴
+        # 마스크를 넣는 이유 — 결함 10 (접촉 마스크와 힘의 시각 불일치)
+        # ────────────────────────────────────────────────────────────
+        # F_G 는 MPC 틱(33.3ms 주기)에 계산되고 다음 틱까지 그대로 유지된다.
+        # 반면 Sa_current 는 스윙 루프(1ms)마다 갱신된다. 그래서 그 사이에
+        # 다리가 이지(liftoff)하면 '이미 공중에 뜬 다리에 힘이 실린 채로'
+        # 최대 16.7ms 동안 적분된다.
+        #
+        # 실측(S1 trot, 3초): FR 과 RL 이 각각 900 스텝 = 0.1초 동안 그 상태다.
+        # FL/RR 은 0 인데, 이 게이트의 접촉 전이 시각(0.5k 초)이 우연히 MPC
+        # 틱과 정렬되기 때문이다. FR/RL 의 전이 시각(0.25 + 0.5k 초)은 두 틱의
+        # 정확히 중간에 떨어진다. 결함의 가시성이 '보행 주기와 MPC 주기의
+        # 우연한 정수비'에 달려 있다 - 로그 주기가 MPC 주기와 정렬되어 결함 7 의
+        # 부트스트랩이 안 보였던 것과 같은 구조다.
+        #
+        # 여기서 Sa_current 로 다시 마스킹하면 더 나빠진다. 이지 순간에는
+        # 그 두 다리가 체중 전부를 지지하고 있으므로, 0 으로 만들면 16.7ms 동안
+        # 지면 반력이 통째로 사라져 자유낙하한다. 올바른 해법은 접촉 전이에서
+        # MPC 를 다시 푸는 것(이벤트 구동)이거나 보행 주기를 MPC 주기의 정수배로
+        # 맞추는 것이며, 리팩토링 단계에서 끼워 넣을 변경이 아니다.
+        #
+        # 그래서 지금은 '이 지령이 전제하는 접촉 상태'를 정직하게 싣는다.
+        # 이것은 관측된 접촉 상태가 아니다. 둘이 다르다는 사실 자체가 결함 10 이고,
+        # 이제 그 차이가 변수 이름으로 드러나 있다.
+        # TODO(결함 10): 접촉 전이 시각에 MPC 틱을 강제하는 이벤트 구동 도입.
+        command = ControlCommand(
+            forces_W=F_G,
+            r_feet_W=r_feet_wf,
+            is_stance=stance_mask_at_solve,
+        )
         # 물리 엔진 스텝 업데이트 (Single Rigid Body Dynamics)
-        p_feet_local = robot.step(F_G, r_feet_wf)
-        # r_feet_wf, X, p_feet_wf
+        robot.step(command)
+        p_feet_local = robot.feet_local_B
         # ----------------------------------------------------
         # 데이터 로깅
         # ----------------------------------------------------

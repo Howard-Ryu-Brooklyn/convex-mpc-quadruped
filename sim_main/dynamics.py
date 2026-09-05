@@ -2,7 +2,7 @@ import numpy as np
 
 from kinematics import clip_q, compute_leg_ik, get_q
 from plant_base import PlantBase
-from robot_types import RobotState
+from robot_types import ControlCommand, RobotState
 from rotations import omega_to_rpy_rate, rpy_to_matrix
 
 class SRBDynamics(PlantBase):
@@ -36,6 +36,8 @@ class SRBDynamics(PlantBase):
         self.l2 = link_info[1]
         self.lhip = link_info[2]
         self.q = init_leg_ang.copy()
+        # step() 이 갱신하는 로깅용 부산물. step() 전에 읽어도 안전하도록 초기화.
+        self._feet_local_B = np.zeros((3, 4))
         # print(self.q)
         self.qdot = init_leg_angvel.copy()
         self.qddot = np.zeros([3, 4])
@@ -102,6 +104,14 @@ class SRBDynamics(PlantBase):
         return self.q
     
     @property
+    def feet_local_B(self):
+        """(3,4) 고관절 기준 발 위치 [m], 바디 프레임. 로깅·시각화용.
+
+        step() 이 갱신한다. step() 전에 읽으면 0 배열이다.
+        """
+        return self._feet_local_B.copy()
+
+    @property
     def RW_B(self):
         """rotation matrix from body to world (3x3)"""
         return self.Rw_b
@@ -109,17 +119,19 @@ class SRBDynamics(PlantBase):
 
     
     
-    def step(self, F_G, r_feet_wf):
+    def step(self, command: ControlCommand) -> None:
         """한 물리 스텝 진행 (PlantBase.step 구현).
 
-        Args:
-            F_G: (3,4) 지면 반발력 [N], world frame. 스윙 다리는 0 이어야 한다.
-            r_feet_wf: (3,4) CoM 기준 발 위치 [m], world frame.
+        SRBD 는 발 위치를 운동학적으로 강제하는 이상적 플랜트이므로
+        command.v_feet_W / a_feet_W 를 **의도적으로 무시**한다. 저수준 추종이
+        완벽하다는 가정이고, 그 가정이 곧 SRBD 가 답하는 질문("MPC 알고리즘
+        자체가 옳은가")의 전제다. 무시하는 것과 못 쓰는 것은 다르다.
 
-        Returns:
-            (3,4) 고관절 기준 발 위치. 시각화·로깅용이며 PlantBase 계약에는
-            없다. TODO(Step 1-5): 로깅 경로를 정리하며 반환값을 없앤다.
+        Args:
+            command: 이번 스텝의 지령. forces_W 와 r_feet_W 만 사용한다.
         """
+        F_G = command.forces_W
+        r_feet_wf = command.r_feet_W
         # 1. 행렬 업데이트 (회전 변환 및 관성 텐서)
         roll, pitch, yaw = self.ang[0, 0], self.ang[1, 0], self.ang[2, 0]
         self.Rw_b = rpy_to_matrix(roll, pitch, yaw)
@@ -181,9 +193,10 @@ class SRBDynamics(PlantBase):
             # self.q[:, i] = q_ik[:,i]
             self.q[:, i] = q_ik
 
-        # print(self.q)
-        # 로깅 및 시각화용 데이터 반환
-        return p_foot_local.copy()
+        # 로깅·시각화용 부산물은 반환값이 아니라 상태로 노출한다.
+        # step() 이 값을 돌려주면 PlantBase 계약(-> None)이 구현체마다
+        # 달라지고, MuJoCoPlant 는 돌려줄 것이 다르다. 관측은 관측 경로로.
+        self._feet_local_B = p_foot_local.copy()
     
 
 
