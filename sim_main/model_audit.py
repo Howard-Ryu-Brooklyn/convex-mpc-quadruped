@@ -101,6 +101,57 @@ def _rel(expected: float, actual: float) -> float:
     return float("inf") if expected == 0 else (actual - expected) / expected
 
 
+def composite_inertia_diag(masses, positions, principal_inertias,
+                           orientations, ref_point) -> np.ndarray:
+    """여러 강체의 합성 관성 텐서 대각항을 ref_point 기준으로 계산한다.
+
+    ★ 이 함수가 따로 있는 이유 (내 버그의 흔적)
+        처음에는 이 계산을 extract_model_facts 안에 인라인으로 넣고, 각 바디의
+        관성을 **주축 프레임 그대로** 더했다. 그 결과 mit_cheetah3 에서
+        Ixx +481.8%, Izz -60.3% 라는 물리적으로 불가능한 값이 나왔다
+        (합성 Izz 0.833 이 몸통 자체의 2.1 보다 작다 - 양수 항들의 합이
+         한 항보다 작을 수는 없다).
+
+        원인: MuJoCo 는 XML 의 fullinertia 를 대각화해 body_inertia(주 모멘트)와
+        body_iquat(주축 방향)으로 나눠 저장한다. 이때 축 순서가 뒤바뀔 수 있다.
+        주 모멘트만 더하면 축이 섞인 값을 더하는 셈이다.
+
+        올바른 식: I_world = R diag(I_principal) R^T 로 먼저 돌린 뒤 더한다.
+
+        교훈이 둘이다.
+          1) 엔진이 주는 값의 '프레임'을 확인하지 않으면 조용히 틀린다.
+             observe() 에서 free joint 의 qvel 규약을 외우지 않으려고
+             mj_objectVelocity 를 쓴 것과 같은 종류의 함정이다.
+          2) 감사 도구도 감사받아야 한다. 이 버그는 두 독립 계산(XML 손계산 vs
+             MuJoCo 추출)이 어긋났기 때문에 잡혔다. 하나만 있었으면 481% 를
+             '다리 관성 기여'로 납득했을 것이다.
+
+    Args:
+        masses: (n,) 질량 [kg]
+        positions: (n,3) 각 바디 무게중심의 월드 좌표 [m]
+        principal_inertias: (n,3) 각 바디의 주 모멘트 [kg m^2]
+        orientations: (n,3,3) 각 바디 관성 주축 프레임의 월드 자세
+        ref_point: (3,) 기준점 (보통 전체 CoM)
+
+    Returns:
+        (3,) 합성 관성 텐서의 대각항 [Ixx, Iyy, Izz]
+    """
+    masses = np.asarray(masses, dtype=float)
+    positions = np.asarray(positions, dtype=float).reshape(-1, 3)
+    principal_inertias = np.asarray(principal_inertias, dtype=float).reshape(-1, 3)
+    orientations = np.asarray(orientations, dtype=float).reshape(-1, 3, 3)
+    ref = np.asarray(ref_point, dtype=float).reshape(3)
+
+    total = np.zeros((3, 3))
+    for m_i, p_i, I_i, R_i in zip(masses, positions, principal_inertias, orientations):
+        if m_i == 0.0:
+            continue
+        total += R_i @ np.diag(I_i) @ R_i.T             # 주축 -> 월드
+        d = p_i - ref
+        total += m_i * (np.dot(d, d) * np.eye(3) - np.outer(d, d))   # 평행축
+    return np.diag(total).copy()
+
+
 def audit(facts: ModelFacts, *, strict: bool = True) -> list[Mismatch]:
     """모델 사실과 config.py 를 대조한다.
 
@@ -221,29 +272,25 @@ def extract_model_facts(model, data) -> ModelFacts:
     data 는 nominal 자세로 mj_forward 가 끝난 상태여야 한다. 관성 추정이
     현재 자세에 의존하기 때문이다 (다리를 접으면 관성이 달라진다).
 
-    관성은 **추정치**다: 각 링크의 자체 관성 대각합 + 평행축 기여만 더하고
-    링크 자체의 회전은 무시한다. 이 모델의 다리 링크 관성은 x,y 가 같아
-    (0.00318, 0.00318, 0.0005) 회전에 거의 둔감하므로 크기를 재는 데는 충분하다.
-    정확한 복합 관성이 필요해지면 mj_fullM 의 6x6 블록으로 바꾼다.
+    관성은 composite_inertia_diag 로 정확히 계산한다 (주축 회전 + 평행축).
+    각 바디의 관성 주축 방향(data.ximat)을 반드시 반영해야 한다 - 무시하면
+    MuJoCo 가 fullinertia 를 대각화하며 뒤바꾼 축 순서 때문에 조용히 틀린다.
     """
     import mujoco  # noqa: PLC0415  — 경계 안에서만 필요하다
 
     mujoco.mj_forward(model, data)
 
     com = data.subtree_com[0].copy()
-    inertia = np.zeros(3)
-    for bid in range(1, model.nbody):
-        m_i = float(model.body_mass[bid])
-        if m_i == 0.0:
-            continue
-        d = data.xipos[bid] - com
-        own = np.asarray(model.body_inertia[bid], dtype=float)
-        # 평행축: I_xx += m(dy^2+dz^2) 등
-        inertia += own + m_i * np.array([
-            d[1] ** 2 + d[2] ** 2,
-            d[0] ** 2 + d[2] ** 2,
-            d[0] ** 2 + d[1] ** 2,
-        ])
+    ids = [b for b in range(1, model.nbody) if model.body_mass[b] != 0.0]
+    inertia = composite_inertia_diag(
+        masses=[model.body_mass[b] for b in ids],
+        positions=[data.xipos[b] for b in ids],
+        principal_inertias=[model.body_inertia[b] for b in ids],
+        # data.ximat = 관성 주축 프레임의 월드 자세. model.body_inertia 는
+        # **그 프레임 기준** 주 모멘트이므로, 돌려서 더해야 한다.
+        orientations=[np.asarray(data.ximat[b]).reshape(3, 3) for b in ids],
+        ref_point=com,
+    )
 
     trunk_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "trunk")
     hips = np.zeros((3, 4))

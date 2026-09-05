@@ -6,6 +6,7 @@ MuJoCo 를 import 하지 않는다. 판정 로직(audit)과 엔진 경계
 """
 
 import numpy as np
+import numpy.testing as npt
 import pytest
 
 import config as cfg
@@ -14,6 +15,7 @@ from model_audit import (
     ModelFacts,
     UnexpectedModelMismatch,
     audit,
+    composite_inertia_diag,
     format_report,
     pyramid_effective_mu,
 )
@@ -170,3 +172,63 @@ def test_raised_error_message_contains_only_the_undeclared_ones():
         audit(make_facts(total_mass_kg=45.84, n_actuators=8))
     assert "액추에이터 수" in str(e.value)
     assert "질량" not in str(e.value)
+
+
+# ── composite_inertia_diag ────────────────────────────────────────────
+def test_single_body_at_the_reference_point_keeps_its_own_inertia():
+    got = composite_inertia_diag([2.0], [[0, 0, 0]], [[1.0, 2.0, 3.0]],
+                                 [np.eye(3)], [0, 0, 0])
+    npt.assert_allclose(got, [1.0, 2.0, 3.0])
+
+
+def test_point_mass_follows_the_parallel_axis_theorem():
+    """질량 m 이 z 로 d 만큼 떨어지면 Ixx, Iyy 에 m d^2 씩 붙고 Izz 는 그대로."""
+    m, d = 3.0, 0.5
+    got = composite_inertia_diag([m], [[0, 0, d]], [[0, 0, 0]],
+                                 [np.eye(3)], [0, 0, 0])
+    npt.assert_allclose(got, [m * d**2, m * d**2, 0.0])
+
+
+def test_bodies_are_additive():
+    a = composite_inertia_diag([1.0], [[0, 0, 0]], [[1, 1, 1]], [np.eye(3)], [0, 0, 0])
+    b = composite_inertia_diag([2.0], [[0.3, 0, 0]], [[2, 2, 2]], [np.eye(3)], [0, 0, 0])
+    both = composite_inertia_diag([1.0, 2.0], [[0, 0, 0], [0.3, 0, 0]],
+                                  [[1, 1, 1], [2, 2, 2]],
+                                  [np.eye(3), np.eye(3)], [0, 0, 0])
+    npt.assert_allclose(both, a + b)
+
+
+def test_rotating_a_body_permutes_its_principal_moments():
+    """★ 이 테스트가 없어서 놓쳤던 버그.
+
+    주축을 z 로 90도 돌리면 Ixx 와 Iyy 가 자리를 바꾼다. 회전을 무시하고 주
+    모멘트만 더하면 이 사실이 사라지고, MuJoCo 가 fullinertia 를 대각화하며
+    바꿔 놓은 축 순서 때문에 조용히 틀린 값이 나온다.
+    """
+    Rz90 = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    got = composite_inertia_diag([1.0], [[0, 0, 0]], [[0.41, 2.1, 2.1]],
+                                 [Rz90], [0, 0, 0])
+    npt.assert_allclose(got, [2.1, 0.41, 2.1], atol=1e-12)
+
+
+def test_composite_inertia_is_never_smaller_than_any_single_contribution():
+    """물리적 하한 - 이 성질이 깨진 것이 버그의 첫 신호였다.
+
+    양의 정부호 텐서들의 합이므로 각 대각항은 어떤 개별 기여보다 작을 수 없다.
+    실제로 잘못된 구현은 합성 Izz 0.833 을 냈는데, 몸통 자체가 2.1 이었다.
+    '481% 커졌다'는 다리 기여로 납득할 뻔했지만 '작아졌다'는 납득할 수 없다.
+    """
+    rng = np.random.default_rng(0)
+    n = 6
+    masses = rng.uniform(0.1, 40.0, n)
+    positions = rng.uniform(-0.5, 0.5, (n, 3))
+    inertias = rng.uniform(0.01, 3.0, (n, 3))
+    rots = []
+    for _ in range(n):
+        q, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+        rots.append(q * np.sign(np.linalg.det(q)))
+    total = composite_inertia_diag(masses, positions, inertias, rots, [0, 0, 0])
+    for i in range(n):
+        one = composite_inertia_diag([masses[i]], [positions[i]], [inertias[i]],
+                                     [rots[i]], [0, 0, 0])
+        assert np.all(total >= one - 1e-12)
