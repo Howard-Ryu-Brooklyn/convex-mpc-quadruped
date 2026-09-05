@@ -9,7 +9,7 @@ import pytest
 
 import config as cfg
 from convex_mpc import ConvexMPC
-from rotations import Rx, Ry, Rz, omega_to_rpy_rate, rpy_to_matrix
+from rotations import Rx, Ry, Rz, matrix_to_rpy, omega_to_rpy_rate, rpy_to_matrix
 
 ANGLES = [0.0, 0.2, np.pi / 6, np.pi / 4, np.pi / 3, np.pi / 2 - 0.05, 2.5, -1.1]
 
@@ -101,3 +101,58 @@ def test_why_straight_walking_could_not_catch_defect_1():
 
     # psi=90도에서 대각 성분이 사라진다 = 피드백 부호가 완전히 반전되는 지점
     npt.assert_allclose(np.diag(Rz(np.pi / 2))[:2], [0.0, 0.0], atol=1e-15)
+
+
+# ── matrix_to_rpy: MuJoCo 자세 -> MPC 오일러각 경계 ─────────────────────
+@pytest.mark.parametrize("seed", range(6))
+def test_matrix_to_rpy_inverts_rpy_to_matrix(seed):
+    """무작위 자세 500개에 대해 rpy -> R -> rpy 왕복.
+
+    pitch 는 (-90, 90) 안에서만 뽑는다. 그 밖은 ZYX 표현 자체가 중복이라
+    '원래 각도로 돌아오는가'를 물을 수 없다 - 아래 짐벌락 테스트가 다룬다.
+    """
+    rng = np.random.default_rng(seed)
+    for _ in range(500):
+        r = rng.uniform(-np.pi, np.pi)
+        p = rng.uniform(-np.pi / 2 + 1e-3, np.pi / 2 - 1e-3)
+        y = rng.uniform(-np.pi, np.pi)
+        npt.assert_allclose(matrix_to_rpy(rpy_to_matrix(r, p, y)), [r, p, y], atol=1e-9)
+
+
+@pytest.mark.parametrize("pitch", [np.pi / 2, -np.pi / 2])
+@pytest.mark.parametrize("roll", [0.0, 0.7, -1.2])
+@pytest.mark.parametrize("yaw", [0.0, 1.1, -2.0])
+def test_gimbal_lock_preserves_the_rotation_even_when_angles_are_ambiguous(pitch, roll, yaw):
+    """짐벌락에서는 각도가 유일하지 않다. 되돌린 '회전'이 같으면 충분하다.
+
+    각도를 요구하면 실패하지만 회전을 요구하면 통과한다 - 무엇을 단언할지가
+    곧 무엇을 보장하는지다. pitch 90도는 4족보행에서 이미 넘어진 상태라
+    제어 목적으로는 무의미한 영역이지만, 조용히 NaN 을 내놓지 않는다는 것은
+    보장되어야 한다.
+    """
+    R = rpy_to_matrix(roll, pitch, yaw)
+    got = matrix_to_rpy(R)
+    assert np.all(np.isfinite(got))
+    npt.assert_allclose(rpy_to_matrix(*got), R, atol=1e-9)
+
+
+def test_identity_matrix_maps_to_zero_angles():
+    npt.assert_allclose(matrix_to_rpy(np.eye(3)), np.zeros(3), atol=1e-15)
+
+
+@pytest.mark.parametrize("yaw", [0.5, -0.5, 3.0, -3.0])
+def test_pure_yaw_is_read_back_as_pure_yaw(yaw):
+    """MuJoCo 로 넘어가는 주된 경로 - 평지 보행은 대부분 이 상태다."""
+    npt.assert_allclose(matrix_to_rpy(Rz(yaw)), [0.0, 0.0, yaw], atol=1e-12)
+
+
+def test_matrix_to_rpy_returns_wrapped_yaw_so_unwrapping_is_still_required():
+    """이 함수는 접힌 yaw 를 준다. 연속화 책임이 Plant 에 있음을 못박는다.
+
+    여기서 알아서 펴주면 '누가 그 상태의 주인인가'가 흐려진다. 상태를 가진
+    쪽(AngleUnwrapper)이 하나여야 멱등성과 초기값을 통제할 수 있다.
+    """
+    yaw = np.deg2rad(200.0)                      # +200도 = -160도로 접힌다
+    got = matrix_to_rpy(Rz(yaw))[2]
+    assert -np.pi <= got < np.pi
+    npt.assert_allclose(got, np.deg2rad(-160.0), atol=1e-12)
