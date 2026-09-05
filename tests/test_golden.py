@@ -5,8 +5,6 @@ import numpy.testing as npt
 import pytest
 
 # sim_main 의 import 경로 설정은 tests/conftest.py 가 담당한다.
-from scenarios import SCENARIOS          # noqa: E402
-from scenario_runner import run_scenario # noqa: E402
 
 BASELINE_DIR = Path(__file__).resolve().parent.parent / "baselines"
 # 신호별 허용오차. 물리량마다 스케일과 수치 노이즈 바닥이 다르다.
@@ -33,13 +31,13 @@ TOLERANCES = {
 # 아니라 "이 변경을 받아들일 것인가"를 묻는 별도의 질문이기 때문이다.
 @pytest.mark.golden
 @pytest.mark.parametrize("name", ["S0_standing", "S1_trot_fwd", "S3_yaw"])
-def test_matches_baseline(name):
+def test_matches_baseline(name, scenario_results):
     path = BASELINE_DIR / f"{name}.npz"
     if not path.exists():
         pytest.skip(f"기준선 없음: {path} — capture_baseline.py를 먼저 실행")
 
     ref = np.load(path)
-    got = run_scenario(**SCENARIOS[name])
+    got = scenario_results(name)
 
     assert got["completed"], f"{name}: {got['diverged_at_s']}s에서 발산"
 
@@ -69,7 +67,7 @@ def _assert_healthy(h, name, z_tol=0.05, rp_tol_deg=15.0):
         f"[{name}] 자세 이탈: {np.rad2deg(rp.max()):.1f}deg"
 
 
-def test_s1_physical_invariants():
+def test_s1_physical_invariants(scenario_results):
     """높이를 제외한 물리 불변량.
 
     높이는 test_s1_height_regulation으로 분리되어 있다. 단언이 순차적이면
@@ -78,7 +76,7 @@ def test_s1_physical_invariants():
     테스트의 입도가 곧 진단의 해상도다.
     """
     import config as cfg
-    h = run_scenario(**SCENARIOS["S1_trot_fwd"])
+    h = scenario_results("S1_trot_fwd")
 
     assert h["completed"], f"[S1] 수치 발산 @ {h['diverged_at_s']}s"
     assert np.all(np.isfinite(h["com_pos"])), "[S1] CoM에 NaN/Inf"
@@ -97,23 +95,23 @@ def test_s1_physical_invariants():
     assert abs(fz.sum(axis=1).mean() - mg) < 0.1 * mg, "[S1] 평균 수직항력이 중력과 불일치"
 
 
-def test_s1_height_regulation():
+def test_s1_height_regulation(scenario_results):
     """높이 유지. 결함 8(MPC 토크암) 회귀 감시."""
-    h = run_scenario(**SCENARIOS["S1_trot_fwd"])
+    h = scenario_results("S1_trot_fwd")
     z = h["com_pos"][:, 2]
     assert np.all(np.abs(z - 0.34) < 0.05), f"[S1] 높이 이탈: [{z.min():.3f}, {z.max():.3f}]"
 
 
-def test_s3_yaw_stays_bounded():
+def test_s3_yaw_stays_bounded(scenario_results):
     """선회 시 자세 안정성. 결함 1(Ac 전치) + 결함 2(r_feet_traj)의 회귀 감시.
 
     두 결함 모두 ψ=0에서 오차가 0이라 S1(직진)으로는 절대 잡히지 않는다.
     이 테스트가 이 두 버그를 지키는 유일한 파수꾼이다.
     """
-    h = run_scenario(**SCENARIOS["S3_yaw"])
+    h = scenario_results("S3_yaw")
     _assert_healthy(h, "S3", z_tol=0.05, rp_tol_deg=8.0)
 
-def test_swing_legs_carry_exactly_zero_force():
+def test_swing_legs_carry_exactly_zero_force(scenario_results):
     """결함 7 — 공중에 뜬 다리에 힘이 실리지 않는가.
 
     OSQP 는 fz in [0,0] 제약을 허용오차 안에서만 만족시켜 스윙 다리에
@@ -123,7 +121,7 @@ def test_swing_legs_carry_exactly_zero_force():
     '정확히 0' 을 요구하는 것이 핵심이다. 허용오차를 주면 이 테스트는
     마스킹이 빠져도 통과한다.
     """
-    h = run_scenario(**SCENARIOS["S1_trot_fwd"])
+    h = scenario_results("S1_trot_fwd")
     is_air = h["contact"].astype(bool)      # 로깅은 구 규약 (AIR=1)
     assert is_air.any(), "trot 인데 스윙 구간이 없다"
 
@@ -135,7 +133,7 @@ def test_swing_legs_carry_exactly_zero_force():
 
 
 @pytest.mark.parametrize("name", ["S1_trot_fwd", "S3_yaw"])
-def test_feet_never_penetrate_the_ground(name):
+def test_feet_never_penetrate_the_ground(name, scenario_results):
     """결함 5 — 발이 지면 아래로 내려가지 않는가.
 
     초기 스윙 목표점에 상대 벡터가 들어가 있어 지면 34cm 아래를 향했다.
@@ -144,6 +142,6 @@ def test_feet_never_penetrate_the_ground(name):
     이 불변량은 결함 5 뿐 아니라 스윙 궤적 전반의 안전장치다 —
     발이 땅을 뚫으면 실기에서는 지면과 충돌한다.
     """
-    h = run_scenario(**SCENARIOS[name])
+    h = scenario_results(name)
     z_min = h["feet_W"][:, 2, :].min()
     assert z_min > -0.01, f"[{name}] 발이 지면 {-z_min * 100:.1f}cm 아래로 내려갔다"
