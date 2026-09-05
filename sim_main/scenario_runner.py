@@ -270,4 +270,18 @@ def run_scenario(
         "contact":       h["Sa"],
         "q":             h["q"],
         "max_s":         np.asarray(swing.max_phase_seen),
+
+        # ── 시각화/진단용 신호 ──────────────────────────────────────────
+        # 위쪽은 '물리적으로 의미가 고정된' 신호라 회귀 판정(TOLERANCES)의
+        # 대상이다. 아래쪽은 그림을 그리는 데 필요한 내부 상태이고, 판정
+        # 대상이 아니다. 한 딕셔너리에 담되 주석으로 층을 나눠 둔다 —
+        # 여기서 층이 흐려지면 '그림이 바뀌었으니 회귀'라는 잘못된 경보가 난다.
+        "R_W_B":          h["R"],              # (T,3,3) 월드←바디 회전행렬
+        "state_13":       h["x"],              # (T,13) RobotState.to_mpc_vector() 레이아웃
+        "state_ref_13":   h["xref"],           # (T,13) horizon 첫 스텝의 참조
+        "feet_rel_W":     h["r_feet_wf"],      # (T,3,4) CoM→발 (월드 정렬)
+        "feet_des_W":     h["p_feet_des_wf"],  # (T,3,4) Raibert 목표 착지점 (절대)
+        "feet_des_rel_W": h["r_feet_des_wf"],  # (T,3,4) 같은 목표점의 CoM 상대
+        "feet_local_B":   h["p_feet_local"],   # (T,3,4) 바디 기준 발 위치 (IK 입력)
+        "swing_phase":    h["s"],              # (T,4) 스윙 진행률 0..1
     }
