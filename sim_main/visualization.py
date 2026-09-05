@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import mpl_toolkits.mplot3d.art3d as art3d
 import matplotlib.animation as animation
 from IPython.display import HTML
+from kinematics import leg_link_positions
 
 # 인자에 history_p 대신 history_x를 추가합니다.
 def animate_quadruped(history_x, history_R, history_r_feet, history_F_G, body_length, body_width, dt=0.033, save=False, history_q=None, link_lengths=(0.1, 0.34, 0.34)):
@@ -84,32 +85,30 @@ def animate_quadruped(history_x, history_R, history_r_feet, history_F_G, body_le
         for i in range(4):
             # history_q는 (N, 3, 4) 크기라고 가정 [q_abad, q_hip, q_knee] * 4
             if history_q is not None:
-                q_leg = history_q[frame, :, :]
-                q_abad, q_hip, q_knee = q_leg[0,i], q_leg[1,i], q_leg[2,i]
-                
-                # 왼쪽 다리(FL, RL)는 +Y 방향, 오른쪽 다리(FR, RR)는 -Y 방향으로 Ab/Ad 오프셋 적용
-                sign_y = 1 if i in [1, 3] else -1
-                l_abad, l_thigh, l_calf = link_lengths
-                
-                # 조인트 회전 행렬
-                Rx = np.array([[1, 0, 0], [0, np.cos(q_abad), -np.sin(q_abad)], [0, np.sin(q_abad), np.cos(q_abad)]])
-                Ry_hip = np.array([[np.cos(q_hip), 0, np.sin(q_hip)], [0, 1, 0], [-np.sin(q_hip), 0, np.cos(q_hip)]])
-                Ry_knee = np.array([[np.cos(q_hip+q_knee), 0, np.sin(q_hip+q_knee)], [0, 1, 0], [-np.sin(q_hip+q_knee), 0, np.cos(q_hip+q_knee)]])
-                
-                p0 = body_world[:, i] # 어깨 조인트
-                p1 = p0 + R @ Rx @ np.array([0, sign_y * l_abad, 0])             # Ab/Ad 끝
-                p2 = p1 + R @ Rx @ Ry_hip @ np.array([0, 0, -l_thigh])           # 무릎
-                p3 = p2 + R @ Rx @ Ry_knee @ np.array([0, 0, -l_calf])           # 발끝
-                
-                leg_x = [p0[0], p1[0], p2[0], p3[0]]
-                leg_y = [p0[1], p1[1], p2[1], p3[1]]
-                leg_z = [p0[2], p1[2], p2[2], p3[2]]
-                
-                leg_plots[i].set_data(leg_x, leg_y)
-                leg_plots[i].set_3d_properties(leg_z)
-                
-                # GRF 렌더링을 위해 p3(발끝) 좌표 사용
-                foot_pos = np.array([p3[0], p3[1], p3[2]])
+                # ★ FK 는 kinematics.leg_link_positions 하나만 쓴다.
+                #   예전에는 여기에 FK 를 손으로 다시 써 두었고, 그 규약이
+                #   compute_leg_ik 와 어긋나 그려진 발이 실제 발과 최대 22cm
+                #   떨어져 있었다. 오차가 바디에 고정된 벡터라 몸통과 함께
+                #   돌았고, yaw 회전 시 '디딤발이 몸통과 같이 회전'하는 것처럼
+                #   보였다. 파생값을 두 곳에서 각자 계산하면 규약이 어긋나는
+                #   순간 한쪽이 조용히 거짓말을 한다.
+                chain_B = leg_link_positions(history_q[frame, :, i], i,
+                                             l_hip=link_lengths[0],
+                                             l_thigh=link_lengths[1],
+                                             l_calf=link_lengths[2])
+                chain_W = body_world[:, i:i+1] + R @ chain_B    # (3,4)
+
+                # 발끝만은 시뮬레이션이 실제로 쓴 값으로 덮어쓴다.
+                #   관절 한계(clip_q)에 걸리면 FK 로 복원한 발끝은 실제 발에
+                #   닿지 못한다. 그때 종아리 링크가 눈에 띄게 늘어나므로
+                #   '포화가 일어났다'가 그림에 드러난다. 숨기지 않고 보여준다.
+                chain_W[:, 3] = feet_world[:, i]
+
+                leg_plots[i].set_data(chain_W[0, :], chain_W[1, :])
+                leg_plots[i].set_3d_properties(chain_W[2, :])
+
+                # GRF 는 실제 접촉점에 작용한다. 복원값이 아니라 실제 발에 건다.
+                foot_pos = feet_world[:, i]
             else:
                 # 관절 데이터가 없으면 단순 직선 연결 (디버깅용)
                 leg_x = [body_world[0, i], feet_world[0, i]]
