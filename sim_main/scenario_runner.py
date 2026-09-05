@@ -113,6 +113,9 @@ def run_scenario(
     # 노트북 시절의 임시방편이었고, 그 0 이 로그 첫 줄에 그대로 찍히고 있었다.
     log = HistoryLogger()
     diverged = False
+    # 첫 스텝은 반드시 풀어야 하므로 '어떤 접촉 상태와도 다른' 값으로 시작한다.
+    stance_mask_at_solve = None
+    n_event_solves = 0        # 진단: 주기 밖에서 추가로 푼 횟수
     # ==========================================
     # 3. 초기 발 위치와 플랜트/제어기 생성
     #    (sim_cnt 에 의존하지 않는 값이므로 루프 밖에 둔다)
@@ -146,6 +149,15 @@ def run_scenario(
     # 물리적으로 성립하지 않는 입력이었다.
     for sim_cnt in range(clock.n_steps):
         current_time = clock.time_at(sim_cnt)
+
+        # ── 접촉 상태는 매 물리 스텝 평가한다 (결함 10) ─────────────────
+        # 예전에는 스윙 루프(1kHz) 안에서만 갱신했다. get_contact_state 는
+        # 비교 네 번이라 9kHz 로 돌려도 비용이 없고, 대신 '지금 이 순간
+        # 어느 발이 땅에 있는가'가 항상 정확해진다. 접촉은 제어 주기의
+        # 사정을 봐주지 않는다.
+        current_phase = (current_time % gait_period) / gait_period
+        Sa_current = get_contact_state(current_phase, gait_duty, gait_phase_offset)
+        is_stance_now = np.asarray(Sa_current) == 0
         # 살아있는 참조 4개를 꺼내 조립하는 대신 불변 스냅샷 하나를 받는다.
         # test_observe_to_mpc_vector_matches_legacy_layout 가 두 경로의
         # 비트 단위 동등성을 증명해두었으므로 이 교체는 기계적이다.
@@ -167,7 +179,25 @@ def run_scenario(
             break
 
         # 🟦 상위 제어기 (MPC)
-        if clock.is_mpc_tick(sim_cnt):
+        #
+        # 결함 10 해결 — 주기 구동에 이벤트 구동을 더한다.
+        # ────────────────────────────────────────────────────────────
+        # MPC 를 33.3ms 격자에서만 풀면, 그 사이에 일어난 접촉 전이는 다음
+        # 틱까지 반영되지 않는다. 이지한 다리에 힘이 실린 채 최대 16.7ms 가
+        # 적분되고(S1 3초에서 FR/RL 각 0.1초), 그 결함의 가시성은 보행 주기와
+        # MPC 주기의 우연한 정수비에 좌우된다.
+        #
+        # Sa_current 로 힘을 다시 마스킹하는 것은 개악이다. 이지 순간 그
+        # 다리들이 체중 전부를 지지하므로, 0 으로 만들면 지면 반력이 통째로
+        # 사라져 자유낙하한다. 힘을 지우는 게 아니라 **다시 풀어야** 한다.
+        #
+        # 접촉은 이산 사건이다. 이산 사건을 고정 주기로 표본화하면 지연은
+        # 반드시 남고, 주기를 올리는 것은 지연을 줄일 뿐 없애지 못한다.
+        # 사건이 일어난 그 순간에 반응하는 것이 유일한 근본 해법이다.
+        contact_changed = not np.array_equal(is_stance_now, stance_mask_at_solve)
+        if contact_changed and not clock.is_mpc_tick(sim_cnt):
+            n_event_solves += 1          # 주기 틱과 겹치지 않은 추가 풀이만 센다
+        if clock.is_mpc_tick(sim_cnt) or contact_changed:
             
             omega_z_des = omega_z_deg_s * DEG2RAD
             v_des = np.array([[v_des_x], [v_des_y], [0.0]])
@@ -198,7 +228,7 @@ def run_scenario(
                 is_stance_schedule=is_stance_schedule,
                 p_feet_now_W=p_feet_wf,
                 p_feet_des_W=p_feet_des_wf,
-                is_stance_now=(np.asarray(Sa_current) == 0),
+                is_stance_now=is_stance_now,
             )
 
             fmpc, umax = mpc.solve(
@@ -216,16 +246,19 @@ def run_scenario(
             # 물리적으로 반드시 성립해야 하는 조건은 솔버에 맡기지 않고
             # 출력단에서 강제한다. 마스크를 plan 에서 가져오므로 접촉 상태의
             # 출처가 하나로 유지된다 (별도 변수를 쓰면 갈라진다).
-            stance_mask_at_solve = plan.is_stance[:, 0]
+            # 마스크의 출처는 '지금 이 순간의 접촉 상태' 하나다.
+            # plan.is_stance[:, 0] 은 같은 시각·같은 공식이라 값이 같지만,
+            # 출처를 둘로 두면 언젠가 갈라진다.
+            stance_mask_at_solve = is_stance_now
             F_G = np.array(fmpc).reshape(4, 3).T * stance_mask_at_solve
 
         # 🟥 상태 추정 및 스윙 제어기
         if clock.is_swing_tick(sim_cnt):
-            current_phase = (current_time % gait_period) / gait_period
-            Sa_current = get_contact_state(current_phase, gait_duty, gait_phase_offset)
-
+            # 접촉 상태는 루프 최상단에서 이미 갱신됐다. 스윙 궤적은 여전히
+            # 1kHz 로만 전진시킨다 - 여기서 바뀐 것은 '언제 보는가'가 아니라
+            # '누가 그 사실의 주인인가'다.
             p_feet_wf = swing.update(
-                is_stance=(np.asarray(Sa_current) == 0),
+                is_stance=is_stance_now,
                 p_feet_W=p_feet_wf,
                 p_feet_target_W=p_feet_des_wf,
                 dt=clock.swing_dt,
@@ -235,39 +268,18 @@ def run_scenario(
 
         r_feet_wf = p_feet_wf - robot.P
 
-        # 지령을 하나의 값으로 묶어 넘긴다. ControlCommand 가 구성 시점에
-        # '스윙 다리 힘 = 0' 을 검사하므로, 결함 7 의 마스킹을 빠뜨리면
-        # 조용히 틀린 궤적이 나오는 대신 여기서 즉시 터진다.
+        # 지령을 하나의 값으로 묶어 넘긴다.
         #
-        # is_stance 에 Sa_current(현재 접촉 상태)가 아니라 MPC 가 풀 때 쓴
-        # 마스크를 넣는 이유 — 결함 10 (접촉 마스크와 힘의 시각 불일치)
-        # ────────────────────────────────────────────────────────────
-        # F_G 는 MPC 틱(33.3ms 주기)에 계산되고 다음 틱까지 그대로 유지된다.
-        # 반면 Sa_current 는 스윙 루프(1ms)마다 갱신된다. 그래서 그 사이에
-        # 다리가 이지(liftoff)하면 '이미 공중에 뜬 다리에 힘이 실린 채로'
-        # 최대 16.7ms 동안 적분된다.
-        #
-        # 실측(S1 trot, 3초): FR 과 RL 이 각각 900 스텝 = 0.1초 동안 그 상태다.
-        # FL/RR 은 0 인데, 이 게이트의 접촉 전이 시각(0.5k 초)이 우연히 MPC
-        # 틱과 정렬되기 때문이다. FR/RL 의 전이 시각(0.25 + 0.5k 초)은 두 틱의
-        # 정확히 중간에 떨어진다. 결함의 가시성이 '보행 주기와 MPC 주기의
-        # 우연한 정수비'에 달려 있다 - 로그 주기가 MPC 주기와 정렬되어 결함 7 의
-        # 부트스트랩이 안 보였던 것과 같은 구조다.
-        #
-        # 여기서 Sa_current 로 다시 마스킹하면 더 나빠진다. 이지 순간에는
-        # 그 두 다리가 체중 전부를 지지하고 있으므로, 0 으로 만들면 16.7ms 동안
-        # 지면 반력이 통째로 사라져 자유낙하한다. 올바른 해법은 접촉 전이에서
-        # MPC 를 다시 푸는 것(이벤트 구동)이거나 보행 주기를 MPC 주기의 정수배로
-        # 맞추는 것이며, 리팩토링 단계에서 끼워 넣을 변경이 아니다.
-        #
-        # 그래서 지금은 '이 지령이 전제하는 접촉 상태'를 정직하게 싣는다.
-        # 이것은 관측된 접촉 상태가 아니다. 둘이 다르다는 사실 자체가 결함 10 이고,
-        # 이제 그 차이가 변수 이름으로 드러나 있다.
-        # TODO(결함 10): 접촉 전이 시각에 MPC 틱을 강제하는 이벤트 구동 도입.
+        # 결함 10 을 고친 뒤에야 아래 is_stance 인자가 의미를 갖는다. 이제
+        # stance_mask_at_solve 와 is_stance_now 는 항상 같다 - 달라지는 순간
+        # 위에서 MPC 를 다시 풀기 때문이다. 따라서 ControlCommand 의
+        # '스윙 다리 힘 = 0' 검사는 형식 검사가 아니라 실제 물리 조건의
+        # 강제가 되고, 매 물리 스텝(27000회) 실행된다. 별도의 assert 를 두지
+        # 않는 이유가 이것이다 - 검사 지점은 하나여야 한다.
         command = ControlCommand(
             forces_W=F_G,
             r_feet_W=r_feet_wf,
-            is_stance=stance_mask_at_solve,
+            is_stance=is_stance_now,
         )
         # 물리 엔진 스텝 업데이트 (Single Rigid Body Dynamics)
         robot.step(command)
@@ -307,6 +319,10 @@ def run_scenario(
         "contact":       h["Sa"],
         "q":             h["q"],
         "max_s":         np.asarray(swing.max_phase_seen),
+        # 진단: 접촉 전이 때문에 주기 밖에서 추가로 푼 MPC 횟수.
+        # 0 이면 이벤트 구동이 동작하지 않는 것이고, 과도하게 크면 접촉
+        # 판정이 떨리고 있다는 뜻이다(채터링).
+        "n_event_solves": np.asarray(n_event_solves),
 
         # ── 시각화/진단용 신호 ──────────────────────────────────────────
         # 위쪽은 '물리적으로 의미가 고정된' 신호라 회귀 판정(TOLERANCES)의

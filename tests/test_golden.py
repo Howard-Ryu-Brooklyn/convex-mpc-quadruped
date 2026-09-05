@@ -145,3 +145,42 @@ def test_feet_never_penetrate_the_ground(name, scenario_results):
     h = scenario_results(name)
     z_min = h["feet_W"][:, 2, :].min()
     assert z_min > -0.01, f"[{name}] 발이 지면 {-z_min * 100:.1f}cm 아래로 내려갔다"
+
+
+# ── 결함 10: 이벤트 구동 MPC ───────────────────────────────────────────
+def test_standing_gait_never_triggers_an_event_solve(scenario_results):
+    """음성 대조군 — 접촉 전이가 없으면 추가 풀이도 없어야 한다.
+
+    이 테스트가 없으면 '조건이 항상 참이라 매번 다시 푸는' 버그를 못 잡는다.
+    그 경우 결과는 오히려 좋아 보이므로(MPC 를 9kHz 로 푸는 셈) 품질 지표로는
+    절대 드러나지 않는다. 트리거가 **언제 울리지 않아야 하는가**를 고정한다.
+    """
+    assert int(scenario_results("S0_standing")["n_event_solves"]) == 0
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("S1_trot_fwd", 6),    # 3초 / 전이 시각 0.25 + 0.5k
+    ("S3_yaw", 12),        # 6초
+])
+def test_event_solves_match_the_contact_transition_count(name, expected, scenario_results):
+    """추가 풀이 횟수는 게이트 스케줄만으로 미리 계산할 수 있다.
+
+    trot 주기 0.5s 에서 접촉 전이는 0.25s 마다 일어나고, 그중 0.5k 초 전이는
+    MPC 격자(1/30초)와 정렬되어 이미 정규 틱에 잡힌다. 격자와 어긋나는
+    0.25 + 0.5k 초 전이만 추가 풀이가 되므로 3초에 6회, 6초에 12회다.
+
+    이 숫자가 커지면 접촉 판정이 떨리고 있다는 뜻이고(채터링), 0 이 되면
+    이벤트 구동이 죽은 것이다. 양쪽 다 여기서 걸린다.
+    """
+    assert int(scenario_results(name)["n_event_solves"]) == expected
+
+
+def test_event_solves_are_a_small_fraction_of_regular_solves(scenario_results):
+    """비용이 감당 가능한 범위인지 - 접촉 채터링에 대한 상한.
+
+    S1 은 정규 90 회에 추가 6 회(+6.7%)다. 이 비율이 크게 오르면 접촉 판정이
+    떨리는 것이고, 그때는 히스테리시스를 넣어야 한다.
+    """
+    h = scenario_results("S1_trot_fwd")
+    regular = int(round(h["t"][-1] * 30)) + 1
+    assert int(h["n_event_solves"]) < 0.25 * regular
