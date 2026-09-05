@@ -21,14 +21,79 @@ import numpy as np
 import config as cfg
 
 
-def compute_leg_ik(p_foot, l_hip=cfg.link_hip, l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+#: 다리별 abad 링크가 뻗는 y 방향 부호. FR/RR 은 -y, FL/RL 은 +y.
+#: 하드코딩하지 않고 힙 배치에서 파생한다 - 한 사실은 한 곳에만 둔다.
+#: (레그 순서는 robot_types.Leg 및 cfg.hip_location_bf 와 같다: FR FL RR RL)
+LEG_HIP_SIGN = np.sign(cfg.hip_location_bf[1, :])
+
+
+def leg_link_positions(q, leg, l_hip=cfg.link_hip,
+                       l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+    """관절각 -> 링크 연결점 4개 (3,4): [고관절, abad 끝, 무릎, 발끝].
+
+    고관절 원점 기준, 바디 프레임. 시각화가 다리를 그릴 때 쓴다.
+    leg_forward_kinematics 는 이 함수의 마지막 열이다 - FK 를 두 번 쓰지 않는다.
+    """
+    qa, qh, qk = float(q[0]), float(q[1]), float(q[2])
+    Rx = np.array([[1, 0, 0],
+                   [0, np.cos(qa), -np.sin(qa)],
+                   [0, np.sin(qa), np.cos(qa)]])
+    Rh = np.array([[np.cos(qh), 0, np.sin(qh)],
+                   [0, 1, 0],
+                   [-np.sin(qh), 0, np.cos(qh)]])
+    c = qh + qk
+    Rk = np.array([[np.cos(c), 0, np.sin(c)],
+                   [0, 1, 0],
+                   [-np.sin(c), 0, np.cos(c)]])
+
+    p_hip = np.zeros(3)
+    p_abad = Rx @ np.array([0.0, LEG_HIP_SIGN[leg] * l_hip, 0.0])
+    p_knee = p_abad + Rx @ Rh @ np.array([0.0, 0.0, -l_thigh])
+    p_foot = p_knee + Rx @ Rk @ np.array([0.0, 0.0, -l_calf])
+    return np.stack([p_hip, p_abad, p_knee, p_foot], axis=1)
+
+
+def leg_forward_kinematics(q, leg, l_hip=cfg.link_hip,
+                           l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+    """관절각 -> 고관절 원점 기준 발 위치 (바디 프레임). compute_leg_ik 의 역함수.
+
+    FK 가 여기 하나만 있어야 하는 이유
+        예전에는 FK 가 visualization.animate_quadruped 안에 손으로 다시 쓰여
+        있었고, 그쪽 규약이 IK 와 어긋나 그려진 발이 실제 발과 최대 22cm
+        떨어져 있었다. yaw 회전 시 '디딤발이 몸통과 함께 도는' 것처럼 보인
+        원인이 이것이다 - 오차가 바디 고정이라 몸통과 같이 돌았다.
+
+        파생값을 두 곳에서 각자 계산하면 규약이 어긋나는 순간 한쪽이 조용히
+        거짓말을 한다. 결함 2(r_feet_traj), 결함 5(절대/상대 위치)와 같은 계열이다.
+
+    Args:
+        q: (3,) [q_abad, q_hip, q_knee] [rad]
+        leg: 다리 인덱스 0..3 (FR FL RR RL). abad 링크 방향 부호를 결정한다.
+        l_hip: abad 링크 길이 (크기). 부호는 leg 가 정한다.
+
+    Returns:
+        (3,) 고관절 원점 기준 발 위치 [m], 바디 프레임.
+    """
+    return leg_link_positions(q, leg, l_hip, l_thigh, l_calf)[:, 3]
+
+
+def compute_leg_ik(p_foot, leg, l_hip=cfg.link_hip, l_thigh=cfg.link_upper,
+                   l_calf=cfg.link_lower, clip=True):
         """
         해석적 역기구학(Analytical IK)을 통해 목표 발 위치에 대한 관절 각도를 계산합니다.
         
         Parameters:
             p_foot (np.array): 고관절 원점(Ab/Ad joint) 기준 목표 발 위치 [x, y, z]^T
                             단, 다리의 로컬 좌표계 기준입니다.
-            l_hip (float): 엉덩이 링크 Y축 오프셋 (왼쪽 다리: 양수, 오른쪽 다리: 음수)
+            leg (int): 다리 인덱스 0..3 (FR FL RR RL).
+                            abad 링크가 뻗는 y 방향 부호를 결정한다.
+
+                            ★ 결함 11 - 예전에는 이 자리가 부호 있는 l_hip 이었고
+                              "왼쪽은 양수, 오른쪽은 음수" 라고 독스트링에만
+                              적혀 있었다. 호출부(dynamics.step)는 네 다리 모두에
+                              같은 값을 넘겨 오른쪽 두 다리를 왼쪽 다리로 계산했다.
+                              독스트링은 규약을 강제하지 못한다. 시그니처가 해야 한다.
+            l_hip (float): 엉덩이 링크 Y축 오프셋의 **크기**. 부호는 leg 가 정한다.
             l_thigh (float): 허벅지 링크 길이
             l_calf (float): 종아리 링크 길이
             
@@ -37,6 +102,7 @@ def compute_leg_ik(p_foot, l_hip=cfg.link_hip, l_thigh=cfg.link_upper, l_calf=cf
                     (계산 불가능한 위치인 경우 NaN 포함 배열 반환)
         """
         x, y, z = p_foot[0], p_foot[1], p_foot[2]
+        l_hip = LEG_HIP_SIGN[leg] * abs(l_hip)
         
         # ----------------------------------------------------
         # 1. q1 (Ab/Ad Roll 각도) 계산
@@ -51,11 +117,19 @@ def compute_leg_ik(p_foot, l_hip=cfg.link_hip, l_thigh=cfg.link_upper, l_calf=cf
         
         L_yz = np.sqrt(L_yz_sq)
         
-        # 다리 평면(Pitch 평면)의 회전 각도 q1 도출
-        # arctan2(z, y)로 전체 각도를 구하고, l_hip에 의한 오프셋 각도 보상
-        # (주의: 로봇의 좌표계 방향에 따라 부호가 반전될 수 있습니다)
+        # 다리 평면(Pitch 평면)의 회전 각도 q1 도출.
+        #
+        # ★ 결함 11 - arctan2 항의 부호가 반대였다. 주석의 "부호가 반전될 수
+        #   있습니다"가 실제로 반전되어 있었다는 뜻이다. 목표 y 가 +0.10 일 때
+        #   FK 는 -0.10 을 돌려주었고(왕복 오차 0.2m), y=0 인 초기 자세에서는
+        #   이 항이 0 이라 오차가 드러나지 않았다. 정지 상태로는 절대 못 잡는
+        #   부호 오류이며, 결함 1(Rz vs Rz^T)이 psi=0 에서 숨어 있던 것과
+        #   구조가 같다.
+        #
+        #   검증: leg_forward_kinematics 와의 왕복 오차가 400 개 무작위 목표에서
+        #   1.6e-16 m (기존 부호로는 최대 0.24 m).
         alpha = np.arcsin(l_hip / L_yz)
-        q1 = -np.arctan2(y, -z) - alpha 
+        q1 = np.arctan2(y, -z) - alpha 
 
         # ----------------------------------------------------
         # 2. q3 (Knee Pitch 각도) 계산
@@ -91,21 +165,30 @@ def compute_leg_ik(p_foot, l_hip=cfg.link_hip, l_thigh=cfg.link_upper, l_calf=cf
         # 최종 Hip 각도
         q2 = theta_1 - theta_2
 
-        cliped_q = clip_q(q1,q2,q3)
-        # print('cliped_q',cliped_q/DEG2RAD)
-        return cliped_q
+        # 관절 한계는 기구학이 아니라 포화(saturation)다. 둘을 섞으면
+        # 'IK 가 틀렸는가'와 '한계에 걸렸는가'를 구별할 수 없어진다.
+        # 런타임은 clip=True, 왕복 검증은 clip=False 로 본다.
+        if not clip:
+            return np.array([q1, q2, q3])
+        return clip_q(q1, q2, q3)
 
 
 def get_q(height, l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
-    # 힙 바로 아래 발 위치가 있다고 가정
-    q1 = 0
-    q2 = get_interior_angle(l_thigh, height, l_calf)
-    q3 = - np.pi + get_interior_angle(l_thigh, l_calf, height)
-    cliped_q = clip_q(q1,q2,q3)
-    
-    q_matrix = np.tile(cliped_q.reshape(3,1), (1, 4))
-    
-    return q_matrix
+    """발이 고관절 바로 아래(height 만큼)에 있는 자세의 관절각 (3,4).
+
+    예전에는 q1 = 0 을 네 다리에 그대로 복사했다. 그런데 abad 링크가 y 로
+    l_hip 만큼 뻗어 있으므로 q1 = 0 이면 발은 고관절 바로 아래가 아니라
+    옆으로 8cm 밀린 곳에 있다. 즉 함수 이름과 실제 자세가 달랐다.
+
+    지금은 compute_leg_ik 를 다리마다 불러 같은 기구학을 쓴다. 결과적으로
+    q1 은 좌우가 부호 대칭이고 q2/q3 는 네 다리가 같다.
+    """
+    p_under_hip = np.array([0.0, 0.0, -height])
+    return np.stack(
+        [compute_leg_ik(p_under_hip, leg, l_thigh=l_thigh, l_calf=l_calf)
+         for leg in range(4)],
+        axis=1,
+    )
 
 
 def clip_q(q1,q2,q3):

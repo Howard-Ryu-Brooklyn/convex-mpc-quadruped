@@ -16,6 +16,9 @@ import config as cfg
 from kinematics import (
     clip_q,
     compute_leg_ik,
+    leg_forward_kinematics,
+    leg_link_positions,
+    LEG_HIP_SIGN,
     get_interior_angle,
     get_q,
     get_r_feet_bf,
@@ -54,6 +57,10 @@ def test_get_interior_angle_matches_law_of_cosines(a, b, c):
     npt.assert_allclose(c**2, a**2 + b**2 - 2 * a * b * np.cos(theta), rtol=1e-12)
 
 
+#: 아래 단독 IK 테스트들이 쓰는 기준 다리. FL(+y) 을 쓴다.
+LEG = 1
+
+
 @pytest.mark.parametrize("p_foot", REACHABLE)
 def test_ik_knee_angle_satisfies_law_of_cosines(p_foot):
     """IK 가 낸 q3 가 다리 2링크 기하와 일치하는가.
@@ -62,7 +69,7 @@ def test_ik_knee_angle_satisfies_law_of_cosines(p_foot):
         L^2 = l1^2 + l2^2 + 2*l1*l2*cos(q3)
     를 만족해야 한다 (q3 는 뒤로 꺾이므로 음수, cos(q3) = cos(-q3)).
     """
-    q = compute_leg_ik(p_foot, L_HIP, L1, L2)
+    q = compute_leg_ik(p_foot, LEG, L_HIP, L1, L2)
     assert np.all(np.isfinite(q)), "도달 가능한 목표인데 NaN 이 나왔다"
 
     x, y, z = p_foot
@@ -75,7 +82,7 @@ def test_ik_knee_angle_satisfies_law_of_cosines(p_foot):
 @pytest.mark.parametrize("p_foot", REACHABLE)
 def test_ik_knee_is_backward(p_foot):
     """무릎은 뒤로 꺾인다 (치타3 규약). q3 는 항상 음수여야 한다."""
-    q = compute_leg_ik(p_foot, L_HIP, L1, L2)
+    q = compute_leg_ik(p_foot, LEG, L_HIP, L1, L2)
     assert q[2] <= 0.0, f"q3 = {q[2]:.4f} — 무릎이 앞으로 꺾였다"
 
 
@@ -89,7 +96,7 @@ def test_ik_returns_nan_when_target_is_inside_hip_radius():
     pytest.raises 로 바뀌며, 그 변경 자체가 의도된 동작 변경의 기록이 된다.
     """
     too_close = np.array([0.0, 0.0, -L_HIP / 2])
-    q = compute_leg_ik(too_close, L_HIP, L1, L2)
+    q = compute_leg_ik(too_close, LEG, L_HIP, L1, L2)
     assert np.all(np.isnan(q))
 
 
@@ -114,9 +121,93 @@ def test_get_r_feet_bf_accepts_explicit_hip_layout():
 
 
 # ── 초기 자세 ────────────────────────────────────────────────────────────
-def test_get_q_returns_same_angles_for_all_legs():
-    """get_q 는 네 다리가 동일한 자세라고 가정한다."""
+def test_get_q_is_mirror_symmetric_not_identical():
+    """get_q 는 네 다리가 '같은' 자세가 아니라 '거울 대칭' 자세다.
+
+    예전 테스트는 네 다리가 완전히 동일하다고 단언했고, 그것이 통과한 이유는
+    구현이 q1 = 0 을 그대로 복사했기 때문이다. 그런데 abad 링크가 y 로
+    8cm 뻗어 있으므로 q1 = 0 이면 발은 고관절 바로 아래가 아니다.
+    테스트가 구현의 잘못된 가정을 그대로 굳히고 있었다.
+    """
     q = get_q(0.34)
-    assert q.shape == (3, 4)
-    for leg in range(1, 4):
-        npt.assert_array_equal(q[:, leg], q[:, 0])
+    npt.assert_allclose(q[0], [-q[0][1], q[0][1], -q[0][1], q[0][1]], atol=1e-12)
+    assert abs(q[0][0]) > 0.1                      # q1 = 0 이 아니다
+    npt.assert_allclose(q[1], np.full(4, q[1][0]), atol=1e-12)   # pitch 는 동일
+    npt.assert_allclose(q[2], np.full(4, q[2][0]), atol=1e-12)
+
+
+def test_get_q_actually_places_the_foot_under_the_hip():
+    """이름이 약속하는 자세를 실제로 만드는가 — FK 로 확인한다."""
+    q = get_q(0.34)
+    for leg in range(4):
+        npt.assert_allclose(leg_forward_kinematics(q[:, leg], leg),
+                            [0.0, 0.0, -0.34], atol=1e-12)
+
+
+# ── 결함 11: IK 와 FK 가 서로의 역함수인가 ─────────────────────────────
+@pytest.mark.parametrize("leg", [0, 1, 2, 3])
+def test_ik_and_fk_are_inverses(leg):
+    """무작위 목표 600개에 대해 FK(IK(p)) == p.
+
+    이 성질이 깨져 있던 것이 결함 11 이다. 두 가지가 겹쳐 있었다.
+      1) compute_leg_ik 의 q1 에서 arctan2 항 부호가 반대였다.
+      2) 호출부가 네 다리 모두에 같은 부호의 l_hip 을 넘겼다.
+    둘 다 y = 0 인 정지 자세에서는 오차가 0 이라 드러나지 않는다. 결함 1이
+    psi = 0 에서 숨어 있던 것과 같은 구조다 - 대칭점에서만 보면 못 잡는다.
+
+    clip=False 로 보는 이유: 관절 한계는 기구학이 아니라 포화다. 섞으면
+    'IK 가 틀렸는가'와 '한계에 걸렸는가'를 구별할 수 없다.
+    """
+    rng = np.random.default_rng(leg)
+    ok = 0
+    for _ in range(600):
+        p = np.array([rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12),
+                      rng.uniform(-0.45, -0.22)])
+        q = compute_leg_ik(p, leg, clip=False)
+        if np.isnan(q).any():
+            continue
+        npt.assert_allclose(leg_forward_kinematics(q, leg), p, atol=1e-12)
+        ok += 1
+    assert ok > 500, f"유효 목표가 너무 적다 ({ok}) — 시험 자체가 무의미해진다"
+
+
+def test_left_and_right_legs_are_mirrored():
+    """y 를 뒤집은 목표는 abad 각도만 부호가 뒤집혀야 한다 (등변성 시험)."""
+    p = np.array([0.04, 0.05, -0.33])
+    q_left = compute_leg_ik(p, 1, clip=False)                     # FL (+y)
+    q_right = compute_leg_ik(p * np.array([1, -1, 1]), 0, clip=False)  # FR (-y)
+    npt.assert_allclose(q_left[0], -q_right[0], atol=1e-12)
+    npt.assert_allclose(q_left[1:], q_right[1:], atol=1e-12)
+
+
+def test_hip_sign_is_derived_from_the_hip_layout():
+    """부호를 하드코딩하지 않고 cfg 에서 파생한다 — 한 사실은 한 곳에."""
+    npt.assert_array_equal(LEG_HIP_SIGN, np.sign(cfg.hip_location_bf[1, :]))
+    npt.assert_array_equal(LEG_HIP_SIGN, [-1, 1, -1, 1])          # FR FL RR RL
+
+
+def test_link_positions_chain_is_connected_with_correct_lengths():
+    """그리기용 체인이 실제 링크 길이를 지키는가."""
+    q = compute_leg_ik(np.array([0.03, -0.02, -0.31]), 0, clip=False)
+    c = leg_link_positions(q, 0)
+    assert c.shape == (3, 4)
+    npt.assert_allclose(c[:, 0], 0.0, atol=1e-12)                 # 고관절 원점
+    npt.assert_allclose(np.linalg.norm(c[:, 1] - c[:, 0]), cfg.link_hip, atol=1e-12)
+    npt.assert_allclose(np.linalg.norm(c[:, 2] - c[:, 1]), cfg.link_upper, atol=1e-12)
+    npt.assert_allclose(np.linalg.norm(c[:, 3] - c[:, 2]), cfg.link_lower, atol=1e-12)
+
+
+def test_clip_is_what_breaks_the_round_trip_not_the_kinematics():
+    """한계에 걸리는 목표에서는 왕복이 깨지고, 그 원인이 포화임을 고정한다."""
+    far = np.array([0.0, 0.40, -0.20])       # q1 = 53.1도, abad 한계 ±45도 밖
+    q_raw = compute_leg_ik(far, 1, clip=False)
+    q_clipped = compute_leg_ik(far, 1, clip=True)
+
+    assert np.rad2deg(q_raw[0]) > np.rad2deg(cfg.max_q1)           # 정말 한계 밖
+    assert not np.allclose(q_raw, q_clipped)                       # 실제로 잘렸다
+    npt.assert_allclose(leg_forward_kinematics(q_raw, 1), far, atol=1e-12)
+    assert np.linalg.norm(leg_forward_kinematics(q_clipped, 1) - far) > 0.05
+
+
+def test_legacy_get_q_signature_still_returns_3x4():
+    assert get_q(0.34).shape == (3, 4)

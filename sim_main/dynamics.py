@@ -185,7 +185,9 @@ class SRBDynamics(PlantBase):
             
             p_foot_local[:,i] = r_feet_bf[:,i] - self.hip_offsets_body[:,i] # hip->foot
             # print('p_foot_local', p_foot_local)
-            q_ik = compute_leg_ik(p_foot_local[:,i], self.lhip, self.l1, self.l2) #get_q(-p_foot_local[2]) 
+            # 결함 11 - 다리 인덱스를 넘긴다. 예전에는 네 다리 모두에 같은
+            # self.lhip 을 넘겨 오른쪽 두 다리(FR/RR)를 왼쪽 다리로 계산했다.
+            q_ik = compute_leg_ik(p_foot_local[:, i], i, self.lhip, self.l1, self.l2)
             
             # [Step C] 상태 업데이트 (시각화를 위해)
             # 이제 qddot, qdot을 적분하지 않고 그냥 q를 덮어씌웁니다.
