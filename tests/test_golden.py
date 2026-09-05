@@ -112,3 +112,38 @@ def test_s3_yaw_stays_bounded():
     """
     h = run_scenario(**SCENARIOS["S3_yaw"])
     _assert_healthy(h, "S3", z_tol=0.05, rp_tol_deg=8.0)
+
+def test_swing_legs_carry_exactly_zero_force():
+    """결함 7 — 공중에 뜬 다리에 힘이 실리지 않는가.
+
+    OSQP 는 fz in [0,0] 제약을 허용오차 안에서만 만족시켜 스윙 다리에
+    ~1e-4 N (때로는 음수) 의 잔류력을 남긴다. 마스킹하지 않으면 그것이
+    그대로 플랜트의 tau = r x f 로 들어간다.
+
+    '정확히 0' 을 요구하는 것이 핵심이다. 허용오차를 주면 이 테스트는
+    마스킹이 빠져도 통과한다.
+    """
+    h = run_scenario(**SCENARIOS["S1_trot_fwd"])
+    is_air = h["contact"].astype(bool)      # 로깅은 구 규약 (AIR=1)
+    assert is_air.any(), "trot 인데 스윙 구간이 없다"
+
+    for axis, name in enumerate("xyz"):
+        f = h["grf"][:, axis, :][is_air]
+        assert np.all(f == 0.0), (
+            f"스윙 다리의 f{name} 가 0 이 아니다: max|f| = {np.abs(f).max():.3e} N"
+        )
+
+
+@pytest.mark.parametrize("name", ["S1_trot_fwd", "S3_yaw"])
+def test_feet_never_penetrate_the_ground(name):
+    """결함 5 — 발이 지면 아래로 내려가지 않는가.
+
+    초기 스윙 목표점에 상대 벡터가 들어가 있어 지면 34cm 아래를 향했다.
+    단위가 둘 다 m 라 대입이 조용히 성립했고, 아무도 알아채지 못했다.
+
+    이 불변량은 결함 5 뿐 아니라 스윙 궤적 전반의 안전장치다 —
+    발이 땅을 뚫으면 실기에서는 지면과 충돌한다.
+    """
+    h = run_scenario(**SCENARIOS[name])
+    z_min = h["feet_W"][:, 2, :].min()
+    assert z_min > -0.01, f"[{name}] 발이 지면 {-z_min * 100:.1f}cm 아래로 내려갔다"

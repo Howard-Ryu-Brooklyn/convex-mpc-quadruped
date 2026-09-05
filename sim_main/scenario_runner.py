@@ -146,6 +146,10 @@ def run_scenario(
         
         if sim_cnt == 0:
             X_current = X0.copy()
+            # TODO(Step 1-6): 첫 MPC 틱(sim_cnt = step_blue) 이전 300 스텝은
+            #   MPC 해가 없어 중력 보상값을 하드코딩해 쓴다. 스윙 다리에도
+            #   힘이 실리므로 물리적으로 맞지 않다. Runner 에서는 sim_cnt=0 에
+            #   MPC 를 한 번 풀고 시작하도록 정리한다.
             F_G = F_G0
 
             pfoot_bf = pfoot_bf0
@@ -156,7 +160,13 @@ def run_scenario(
             hip_location_wf = P0 + Rw_b0 @ cfg.hip_location_bf
 
             p_feet_wf = P0 + r_feet_wf
-            p_feet_des_wf = r_feet_wf.copy()
+            # 결함 5 — p_feet_des_wf 는 '절대 위치'다.
+            #   r_feet_wf(CoM 기준 상대 벡터)를 넣으면 z 가 -0.34 가 되어,
+            #   첫 MPC 틱 이전(33ms) 스윙 궤적의 목표점이 지면 34cm 아래를
+            #   향한다. 단위가 같아서(m) 대입이 조용히 성립한 사고다.
+            #   1-1 에서 FootState 가 pos_W 와 rel_com_W 를 별도 필드로
+            #   나눈 이유가 이것이며, 그 타입을 쓰면 애초에 불가능하다.
+            p_feet_des_wf = p_feet_wf.copy()
             robot = SRB_model.SRBDynamics(sim_ts, cfg.m, inertia_diag_list, cfg.gz, P0, V0, ANG0, ANGVEL0, link_info, Q0, QDOT0, cfg.hip_location_bf, r_feet_wf, inertia_leg_diag_list)
 
             mpc = cvx_mpc.ConvexMPC(cfg.m, inertia_diag_list, cfg.gz, mpc_dt, horizon, L_weights, cfg.K_w_f, cfg.MU_FRICTION, cfg.fmin, cfg.fmax)
@@ -213,8 +223,19 @@ def run_scenario(
                 fmpc, umax = mpc.solve(
                     X_current, plan.x_ref, plan.yaw_ref, plan.r_feet_W, plan.contact_legacy
                 )
-                
-                F_G = np.array(fmpc).reshape(4, 3).T
+
+                # 결함 7 — 접촉 마스크.
+                # OSQP 는 수치 솔버라 fz in [0,0] 제약을 허용오차 안에서만 만족시킨다.
+                # 그 결과 스윙 다리에 ~1e-4 N (때로는 음수) 의 잔류력이 남고,
+                # 마스킹하지 않으면 그대로 플랜트의 tau = r x f 에 들어간다.
+                # 시뮬레이션에서는 미세하지만 실기에서는 공중에 뜬 다리에 토크
+                # 지령이 새는 것이고, 원인이 '솔버 수렴 오차'라 로그만 봐서는
+                # 절대 찾을 수 없다.
+                #
+                # 물리적으로 반드시 성립해야 하는 조건은 솔버에 맡기지 않고
+                # 출력단에서 강제한다. 마스크를 plan 에서 가져오므로 접촉 상태의
+                # 출처가 하나로 유지된다 (별도 변수를 쓰면 갈라진다).
+                F_G = np.array(fmpc).reshape(4, 3).T * plan.is_stance[:, 0]
 
             # 🟥 상태 추정 및 스윙 제어기
             if (sim_cnt % step_red == 0):
