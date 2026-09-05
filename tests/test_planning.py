@@ -124,8 +124,8 @@ def _plan(is_stance_now=None):
         x_ref=x_ref,
         yaw_ref=yaw_ref,
         is_stance_schedule=build_contact_schedule(0.0, period, duty, offset, HORIZON, MPC_DT),
-        r_feet_now_W=np.full((3, 4), 1.0),
-        r_feet_des_W=np.full((3, 4), 2.0),
+        p_feet_now_W=np.full((3, 4), 1.0),
+        p_feet_des_W=np.full((3, 4), 2.0),
         is_stance_now=is_stance_now,
     )
 
@@ -159,17 +159,69 @@ def test_plan_is_immutable():
 
 
 def test_torque_arm_uses_actual_position_for_stance_and_target_for_swing():
-    """결함 8 의 핵심 규칙.
+    """결함 8 의 규칙 (1) — 발 위치 선택.
 
-    MPC 의 r_i 는 힘이 실제로 작용하는 지점이어야 한다. 지지 다리는 접지
-    위치를, 스윙 다리는 아직 닿지 않았으므로 목표 착지점을 쓴다.
+    지금 접지 중이고 계속 접지인 다리는 움직이지 않으므로 현재 실제 위치를,
+    그 외에는 아직 그 자리에 없으므로 Raibert 목표 착지점을 쓴다.
+    CoM 은 참조 궤적의 스텝 0 위치(= 현재 위치, 여기서는 원점)다.
     """
     plan = _plan(is_stance_now=np.array([True, False, False, True]))
     r = plan.r_feet_W[0]
-    npt.assert_allclose(r[:, Leg.FR], 1.0)   # stance -> 현재 실제 위치
-    npt.assert_allclose(r[:, Leg.RL], 1.0)
-    npt.assert_allclose(r[:, Leg.FL], 2.0)   # swing  -> Raibert 목표점
-    npt.assert_allclose(r[:, Leg.RR], 2.0)
+    npt.assert_allclose(r[:2, Leg.FR], 1.0)   # stance -> 현재 실제 위치
+    npt.assert_allclose(r[:2, Leg.RL], 1.0)
+    npt.assert_allclose(r[:2, Leg.FL], 2.0)   # swing  -> Raibert 목표점
+    npt.assert_allclose(r[:2, Leg.RR], 2.0)
+
+
+def test_torque_arm_follows_predicted_com_over_the_horizon():
+    """결함 8 의 규칙 (2) — CoM 이동 반영.
+
+    v=1 m/s 로 전진하면 horizon 끝의 CoM 은 0.3 m 앞에 있다. 토크암은 그만큼
+    뒤로 물러나야 한다. 이전 근사는 전 구간에 같은 값을 써서 이를 무시했다.
+    """
+    period, duty, offset = get_gait_parameters("standing")
+    v_des = np.array([[1.0], [0.0], [0.0]])
+    x_ref, yaw_ref = build_reference_trajectory(
+        _state(), v_des, 0.0, HEIGHT, HORIZON, MPC_DT)
+
+    plan = build_horizon_plan(
+        x_ref=x_ref, yaw_ref=yaw_ref,
+        is_stance_schedule=build_contact_schedule(0.0, period, duty, offset, HORIZON, MPC_DT),
+        p_feet_now_W=np.zeros((3, 4)),
+        p_feet_des_W=np.zeros((3, 4)),
+        is_stance_now=np.ones(4, dtype=bool),
+    )
+
+    for k in range(HORIZON):
+        # 발은 고정, CoM 만 v*t 만큼 전진 -> 토크암 x 는 -v*t
+        npt.assert_allclose(plan.r_feet_W[k][0, :], -1.0 * k * MPC_DT, atol=1e-12)
+
+    # 마지막 스텝에서 0.3 m 차이 (이전 근사에서는 0 이었다)
+    npt.assert_allclose(plan.r_feet_W[-1][0, 0] - plan.r_feet_W[0][0, 0],
+                        -(HORIZON - 1) * MPC_DT, atol=1e-12)
+
+
+def test_leg_that_lifts_off_during_horizon_uses_target_position():
+    """도중에 발을 떼는 다리는 그 시점부터 '현재 위치'가 유효하지 않다."""
+    period, duty, offset = get_gait_parameters("trotting")
+    sched = build_contact_schedule(0.0, period, duty, offset, HORIZON, MPC_DT)
+    x_ref, yaw_ref = build_reference_trajectory(
+        _state(), np.zeros((3, 1)), 0.0, HEIGHT, HORIZON, MPC_DT)
+
+    plan = build_horizon_plan(
+        x_ref=x_ref, yaw_ref=yaw_ref, is_stance_schedule=sched,
+        p_feet_now_W=np.full((3, 4), 1.0),
+        p_feet_des_W=np.full((3, 4), 2.0),
+        is_stance_now=sched[:, 0].copy(),
+    )
+
+    for leg in range(4):
+        lift_off = np.argmax(~sched[leg]) if not sched[leg].all() else HORIZON
+        for k in range(HORIZON):
+            planted = sched[leg, 0] and k < lift_off
+            expected = 1.0 if planted else 2.0
+            npt.assert_allclose(plan.r_feet_W[k][0, leg], expected, atol=1e-12,
+                                err_msg=f"leg={leg} k={k}")
 
 
 def test_contact_legacy_inverts_the_convention():

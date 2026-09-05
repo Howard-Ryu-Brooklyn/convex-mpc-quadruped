@@ -33,6 +33,6 @@ def capture(name: str) -> Path:
 
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or ["S0_standing", "S1_trot_fwd"]
+    names = sys.argv[1:] or ["S0_standing", "S1_trot_fwd", "S3_yaw"]
     for n in names:
         capture(n)

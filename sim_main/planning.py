@@ -118,28 +118,61 @@ def build_horizon_plan(
     x_ref: NDArray[np.float64],
     yaw_ref: NDArray[np.float64],
     is_stance_schedule: NDArray[np.bool_],
-    r_feet_now_W: NDArray[np.float64],
-    r_feet_des_W: NDArray[np.float64],
+    p_feet_now_W: NDArray[np.float64],
+    p_feet_des_W: NDArray[np.float64],
     is_stance_now: NDArray[np.bool_],
 ) -> HorizonPlan:
     """MPC 한 번의 풀이에 필요한 모든 것을 하나의 불변 객체로 조립한다.
 
-    토크암 선택
-        MPC 의 B 행렬에 들어가는 r_i 는 '힘이 실제로 작용하는 지점'이어야 한다.
-          - 지지 중인 다리: 접지 순간에 고정된 실제 위치 (r_feet_now_W)
-          - 스윙 중인 다리: 아직 닿지 않았으므로 Raibert 목표점 (r_feet_des_W)
+    Args:
+        x_ref: (13k, 1) 참조 상태 궤적
+        yaw_ref: (k,) 스텝별 예측 yaw
+        is_stance_schedule: (4, k) 스텝별 접촉 예측
+        p_feet_now_W: (3,4) 현재 발의 **절대** 위치 [m]
+        p_feet_des_W: (3,4) Raibert 목표 착지점의 **절대** 위치 [m]
+        is_stance_now: (4,) 현재 접촉 상태
 
-    TODO(Step 1-4b): 지금은 '현재 시점' 값을 horizon 전 구간에 복사하는 근사다.
-        스텝 k 에서 접지 상태가 바뀌는 다리는 그 시점의 예측 위치를 써야 하고,
-        r 은 각 스텝의 예측 CoM 기준이어야 한다. is_stance_schedule 이
-        이미 스텝별 정보를 갖고 있으므로 그 자리는 마련되어 있다.
+    ── 토크암 r_i 를 어떻게 정하는가 (결함 8) ──────────────────────────────
+
+    MPC 의 B 행렬에 들어가는 r_i 는 스텝 k 에서 **힘이 실제로 작용하는 지점을
+    그 시점의 CoM 기준으로** 본 것이어야 한다. 두 축 모두 시간에 따라 변한다.
+
+    (1) 발 위치
+        지금 접지 중이고 스텝 k 까지 계속 접지라면, 그 발은 움직이지 않는다.
+        따라서 현재 실제 위치를 그대로 쓴다.
+        그 외(지금 스윙 중이거나, 도중에 이지했다가 다시 착지하는 경우)는
+        아직 그 자리에 없으므로 Raibert 목표 착지점을 쓴다.
+
+    (2) CoM 위치
+        참조 궤적의 스텝 k 위치를 쓴다. MPC 는 자신이 참조를 추종한다고
+        가정하고 그 궤적 주변에서 선형화하므로 일관된 선택이다.
+
+        대안으로 p_com_now + v_com_now * t 도 가능하지만, trot 에서
+        v_com_now 는 보행 주기에 맞춰 심하게 진동한다. 그러면 토크암이 매
+        MPC 틱마다 요동쳐 QP 에 노이즈를 주입하게 된다. v_des 는 매끄럽다.
+
+    ── 이전 근사가 왜 문제였는가 ──────────────────────────────────────────
+
+    직전까지는 '현재 시점' 값 하나를 horizon 전 구간에 복사했다. v=1 m/s 에서
+    horizon 끝(k=9)의 CoM 은 실제로 0.3 m 앞에 있는데 그것을 무시한 것이다.
+    네 발의 토크암이 일제히 뒤로 치우친 것과 같고, 존재하지 않는 피치 모멘트를
+    MPC 가 보게 된다. 결함 8 의 절반만 고친 상태였다.
     """
     horizon = is_stance_schedule.shape[1]
-    r_feet_mpc = np.where(is_stance_now[None, :], r_feet_now_W, r_feet_des_W)
+    r_feet_W = []
+
+    for k in range(horizon):
+        # 스텝 k 까지 한 번도 발을 떼지 않은 다리만 '그 자리에 그대로' 있다.
+        stays_planted = is_stance_now & is_stance_schedule[:, : k + 1].all(axis=1)
+
+        p_feet_k = np.where(stays_planted[None, :], p_feet_now_W, p_feet_des_W)
+        p_com_k = x_ref[k * 13 + 3 : k * 13 + 6, 0:1]      # (3,1)
+
+        r_feet_W.append(p_feet_k - p_com_k)
 
     return HorizonPlan(
         x_ref=x_ref,
         yaw_ref=yaw_ref,
-        r_feet_W=[r_feet_mpc.copy() for _ in range(horizon)],
+        r_feet_W=r_feet_W,
         is_stance=is_stance_schedule,
     )

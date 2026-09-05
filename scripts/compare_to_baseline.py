@@ -1,0 +1,82 @@
+"""기준선과 현재 코드의 **품질**을 나란히 비교한다.
+
+check_s1_delta.py 는 '얼마나 바뀌었나'를 답한다. 이 스크립트는
+'좋아졌나 나빠졌나'를 답한다. 동작을 바꾸는 수정 뒤에는 둘 다 필요하다.
+
+변화량이 크다는 것은 그 자체로 좋지도 나쁘지도 않다. 기준선을 받아들일지는
+품질 지표를 보고 정한다.
+
+실행: python scripts/compare_to_baseline.py [시나리오키 ...]
+"""
+import sys
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "sim_main"))
+
+import config as cfg  # noqa: E402
+from scenario_runner import run_scenario  # noqa: E402
+from scenarios import SCENARIOS  # noqa: E402
+
+
+def metrics(h, nominal_height, target_distance_m=0.0):
+    z = h["com_pos"][:, 2]
+    rp = np.abs(h["rpy"][:, :2])
+    fx, fy, fz = h["grf"][:, 0, :], h["grf"][:, 1, :], h["grf"][:, 2, :]
+    mg = abs(cfg.m * cfg.gz)
+    cone = np.maximum(np.abs(fx), np.abs(fy)) - cfg.MU_FRICTION * fz
+    return {
+        "높이 편차 최대 [m]": float(np.abs(z - nominal_height).max()),
+        "높이 RMS [m]": float(np.sqrt(np.mean((z - nominal_height) ** 2))),
+        "roll/pitch 최대 [deg]": float(np.rad2deg(rp.max())),
+        "roll/pitch RMS [deg]": float(np.rad2deg(np.sqrt(np.mean(rp**2)))),
+        "|yaw| 최대 [deg]": float(np.rad2deg(np.abs(h["rpy"][:, 2]).max())),
+        "|v| 최대 [m/s]": float(np.linalg.norm(h["com_vel"], axis=1).max()),
+        "전진 거리 [m]": float(h["com_pos"][-1, 0] - h["com_pos"][0, 0]),
+        "전진 거리 오차 최대 [m]": float(abs(
+            (h["com_pos"][-1, 0] - h["com_pos"][0, 0]) - target_distance_m)),
+        "측면 이탈 최대 [m]": float(np.abs(h["com_pos"][:, 1]).max()),
+        "평균 수직력 / mg": float(fz.sum(axis=1).mean() / mg),
+        # 양수 = 위반. OSQP 수렴 오차(~1e-1 N) 수준이면 무해하다.
+        "마찰 피라미드 위반 최대 [N]": float(max(cone.max(), 0.0)),
+    }
+
+
+def compare(name):
+    path = ROOT / "baselines" / f"{name}.npz"
+    if not path.exists():
+        print(f"[{name}] 기준선 없음: {path}")
+        return
+
+    ref = dict(np.load(path))
+    got = run_scenario(**SCENARIOS[name])
+    nominal = cfg.leg_length_straight / 2
+
+    # 시나리오의 목표 전진 거리 = v_des_x * duration
+    sc = SCENARIOS[name]
+    target = sc.get("v_des_x", 0.0) * sc["duration_s"]
+    m_ref, m_got = metrics(ref, nominal, target), metrics(got, nominal, target)
+
+    print(f"\n═══ {name} ═══")
+    print(f"{'지표':<28}{'기준선':>14}{'현재':>14}{'변화':>12}")
+    print("─" * 68)
+    for k in m_ref:
+        a, b = m_ref[k], m_got[k]
+        if abs(a) < 1e-12:
+            mark = "  —"
+        else:
+            ratio = b / a
+            # 작을수록 좋은 지표만 화살표를 붙인다
+            lower_is_better = any(w in k for w in ("편차", "RMS", "최대", "이탈", "위반"))
+            if not lower_is_better or abs(ratio - 1.0) < 0.02:
+                mark = "  ="
+            else:
+                mark = "  ✅ 개선" if ratio < 1 else "  ⚠️ 악화"
+        print(f"{k:<28}{a:>14.6f}{b:>14.6f}{mark:>12}")
+
+
+if __name__ == "__main__":
+    for name in (sys.argv[1:] or ["S0_standing", "S1_trot_fwd"]):
+        compare(name)

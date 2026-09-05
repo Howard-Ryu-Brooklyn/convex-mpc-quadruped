@@ -32,7 +32,7 @@ TOLERANCES = {
 # golden 마커: `make check`에서 제외된다. 기준선 비교는 "코드가 정상인가"가
 # 아니라 "이 변경을 받아들일 것인가"를 묻는 별도의 질문이기 때문이다.
 @pytest.mark.golden
-@pytest.mark.parametrize("name", ["S0_standing", "S1_trot_fwd"])
+@pytest.mark.parametrize("name", ["S0_standing", "S1_trot_fwd", "S3_yaw"])
 def test_matches_baseline(name):
     path = BASELINE_DIR / f"{name}.npz"
     if not path.exists():

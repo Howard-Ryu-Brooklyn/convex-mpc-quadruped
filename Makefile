@@ -10,5 +10,5 @@ check-all:  ## 물리 + 기준선 전체
 	pytest -v
 
 accept:  ## 변경을 의도한 것으로 받아들이고 기준선을 갱신한다
-	python sim_main/capture_baseline.py S0_standing S1_trot_fwd
+	python sim_main/capture_baseline.py S0_standing S1_trot_fwd S3_yaw
 	pytest -v

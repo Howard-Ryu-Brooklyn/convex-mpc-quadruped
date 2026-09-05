@@ -205,8 +205,8 @@ def run_scenario(
                     x_ref=x_ref_traj,
                     yaw_ref=yaw_traj,
                     is_stance_schedule=is_stance_schedule,
-                    r_feet_now_W=p_feet_wf - robot.P,
-                    r_feet_des_W=r_feet_des_wf,
+                    p_feet_now_W=p_feet_wf,
+                    p_feet_des_W=p_feet_des_wf,
                     is_stance_now=(np.asarray(Sa_current) == 0),
                 )
 
