@@ -280,6 +280,11 @@ def run_scenario(
             forces_W=F_G,
             r_feet_W=r_feet_wf,
             is_stance=is_stance_now,
+            # SRBD 는 이 둘을 무시한다(이상적 플랜트라 저수준 추종이 완벽하다는
+            # 가정). 그래도 싣는 이유는 지령의 '모양'이 Plant 종류와 무관해야
+            # 하기 때문이다 - 같은 Controller 가 MuJoCo 에도 그대로 꽂힌다.
+            v_feet_W=swing.velocity_W,
+            a_feet_W=swing.acceleration_W,
         )
         # 물리 엔진 스텝 업데이트 (Single Rigid Body Dynamics)
         robot.step(command)

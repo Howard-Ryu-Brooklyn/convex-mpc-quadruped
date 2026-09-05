@@ -8,6 +8,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
+from bezier import bezier_with_derivatives
 from swing import SwingTrajectoryGenerator
 
 T_SWING = 0.25
@@ -135,3 +136,151 @@ def test_legs_are_independent():
     assert out[0, 1] > 0.0 and out[0, 3] > 0.0       # 스윙 다리는 전진
     npt.assert_array_equal(gen.phase[[0, 2]], [0.0, 0.0])
     assert gen.phase[1] > 0.0 and gen.phase[3] > 0.0
+
+
+# ── 1-7d-2a: 토크 구동 Plant 를 위한 속도·가속도 ────────────────────────
+def _run_swing(gen, n, dt, target=None):
+    """다리 0 만 스윙시키며 (위치, 속도, 가속도) 궤적을 모은다."""
+    is_stance = np.array([False, True, True, True])
+    p = np.zeros((3, 4))
+    tgt = np.zeros((3, 4)) if target is None else target
+    P, V, A = [], [], []
+    for _ in range(n):
+        p = gen.update(is_stance=is_stance, p_feet_W=p, p_feet_target_W=tgt, dt=dt)
+        P.append(p[:, 0].copy())
+        V.append(gen.velocity_W[:, 0].copy())
+        A.append(gen.acceleration_W[:, 0].copy())
+    return np.array(P), np.array(V), np.array(A)
+
+
+def test_velocity_matches_the_numerical_derivative_of_the_position():
+    """속도가 '그 위치 궤적의' 미분인가.
+
+    위치와 미분을 따로 계산하면 언젠가 서로 맞지 않는 지령이 나간다. 토크
+    구동에서는 그것이 곧 발이 목표를 향해 가면서 목표에서 멀어지라는 지령이
+    된다. 두 값이 같은 곡선에서 나온다는 것을 수치로 확인한다.
+    """
+    dt = 1e-4
+    gen = SwingTrajectoryGenerator(swing_duration_s=0.15, clearance_height_m=0.05)
+    target = np.zeros((3, 4))
+    target[:, 0] = [0.3, 0.1, 0.0]
+    P, V, _ = _run_swing(gen, 1200, dt, target)
+
+    v_num = np.gradient(P, dt, axis=0)
+    inner = slice(50, -50)                    # 끝단은 gradient 정확도가 떨어진다
+    npt.assert_allclose(V[inner], v_num[inner], atol=2e-3)
+
+
+def test_acceleration_matches_the_numerical_derivative_of_the_velocity():
+    dt = 1e-4
+    gen = SwingTrajectoryGenerator(swing_duration_s=0.15, clearance_height_m=0.05)
+    target = np.zeros((3, 4))
+    target[:, 0] = [0.3, 0.1, 0.0]
+    _, V, A = _run_swing(gen, 1200, dt, target)
+
+    a_num = np.gradient(V, dt, axis=0)
+    inner = slice(50, -50)
+    npt.assert_allclose(A[inner], a_num[inner], rtol=2e-2, atol=1e-1)
+
+
+def test_stance_legs_have_zero_velocity_and_acceleration():
+    """땅에 박힌 발은 움직이지 않는다 - 위치뿐 아니라 미분도 0이어야 한다."""
+    gen = SwingTrajectoryGenerator(swing_duration_s=0.15, clearance_height_m=0.05)
+    gen.update(is_stance=np.array([False, True, True, True]),
+               p_feet_W=np.zeros((3, 4)), p_feet_target_W=np.zeros((3, 4)), dt=1e-3)
+    npt.assert_array_equal(gen.velocity_W[:, 1:], np.zeros((3, 3)))
+    npt.assert_array_equal(gen.acceleration_W[:, 1:], np.zeros((3, 3)))
+
+
+def test_touchdown_clears_the_derivatives():
+    """스윙 중 값이 착지 후에도 남아 있으면, 지지 다리에 속도 지령이 샌다."""
+    gen = SwingTrajectoryGenerator(swing_duration_s=0.15, clearance_height_m=0.05)
+    tgt = np.zeros((3, 4)); tgt[:, 0] = [0.3, 0.0, 0.0]
+    p = np.zeros((3, 4))
+    for _ in range(70):                        # 스윙 중간까지
+        p = gen.update(is_stance=np.array([False, True, True, True]),
+                       p_feet_W=p, p_feet_target_W=tgt, dt=1e-3)
+    assert np.linalg.norm(gen.velocity_W[:, 0]) > 0.1
+
+    gen.update(is_stance=np.ones(4, dtype=bool),
+               p_feet_W=p, p_feet_target_W=tgt, dt=1e-3)
+    npt.assert_array_equal(gen.velocity_W[:, 0], np.zeros(3))
+    npt.assert_array_equal(gen.acceleration_W[:, 0], np.zeros(3))
+
+
+def test_liftoff_and_touchdown_velocities_are_vertical_on_the_curve():
+    """제어점이 p0, p0+lift, p3+lift, p3 이므로 곡선의 양 끝 속도는 수직이다.
+
+    B'(0) = 3(P1-P0) = 3*lift (수직 +z),  B'(1) = 3(P3-P2) = -3*lift (수직 -z).
+    즉 발이 지면에 수직으로 내려앉는다 - 착지 순간 수평 속도가 0 이어야
+    미끄러지지 않는다. 이 성질은 **곡선의 성질**이므로 곡선에 직접 묻는다.
+    """
+    p0 = np.array([0.0, 0.0, 0.0])
+    p3 = np.array([0.3, 0.1, 0.0])
+    lift = np.array([0.0, 0.0, 0.05])
+    ctrl = [p0, p0 + lift, p3 + lift, p3]
+
+    _, v0, _ = bezier_with_derivatives(0.0, ctrl, duration_s=0.15)
+    _, v1, _ = bezier_with_derivatives(1.0, ctrl, duration_s=0.15)
+    npt.assert_allclose(v0, 3 * lift / 0.15, atol=1e-12)
+    npt.assert_allclose(v1, -3 * lift / 0.15, atol=1e-12)
+
+
+def test_generator_leaves_the_ground_almost_vertically():
+    """생성기의 첫 표본은 s=0 이 아니라 s=dt/T 다 - update() 가 먼저 시간을
+    흘린 뒤 평가하기 때문이다. 따라서 '정확히 0' 이 아니라 '수직이 지배적'을
+    묻는다. 무엇을 단언할 수 있는지는 구현의 시점 규약이 정한다.
+    """
+    dt = 1e-4
+    gen = SwingTrajectoryGenerator(swing_duration_s=0.15, clearance_height_m=0.05)
+    tgt = np.zeros((3, 4)); tgt[:, 0] = [0.3, 0.1, 0.0]
+    _, V, _ = _run_swing(gen, 1500, dt, tgt)
+
+    assert V[0, 2] > 0.5                                        # 위로 뜬다
+    assert np.abs(V[0, :2]).max() < 0.02 * V[0, 2]              # 수평은 무시할 수준
+
+
+def test_derivatives_scale_with_swing_duration():
+    """같은 궤적을 절반 시간에 그리면 속도는 2배, 가속도는 4배다."""
+    dt = 1e-5
+    tgt = np.zeros((3, 4)); tgt[:, 0] = [0.3, 0.0, 0.0]
+    out = {}
+    for T in (0.2, 0.1):
+        gen = SwingTrajectoryGenerator(swing_duration_s=T, clearance_height_m=0.05)
+        n = int(round(0.5 * T / dt))            # 위상 0.5 지점
+        _, V, A = _run_swing(gen, n, dt, tgt)
+        out[T] = (V[-1], A[-1])
+    # atol 이 필요한 이유: z 성분은 위상 0.5 에서 해석적으로 0 이라 값이
+    # 1e-13 수준이다. 0 근처에서 상대 오차를 요구하면 반드시 실패한다 -
+    # golden 테스트에서 신호별 atol 을 넣었던 것과 같은 문제다.
+    npt.assert_allclose(out[0.1][0], 2.0 * out[0.2][0], rtol=1e-3, atol=1e-9)
+    npt.assert_allclose(out[0.1][1], 4.0 * out[0.2][1], rtol=1e-3, atol=1e-6)
+
+
+def test_derivatives_go_to_zero_once_the_phase_is_clipped():
+    """결함 12 — 궤적이 끝나면 위치가 상수이므로 미분도 0 이어야 한다.
+
+    3차 베지에의 끝점 속도는 0 이 아니라 -3*lift/T (여기서는 -1.0 m/s) 다.
+    위상만 클립하고 미분을 그대로 두면 "위치는 여기 고정, 속도는 초당 1m 로
+    내려가라"는 모순된 지령이 나간다. SRBD 는 발을 운동학적으로 강제하므로
+    아무 일도 없지만, 토크 구동에서는 이미 착지한 발을 계속 땅으로 밀어넣는다.
+
+    이 결함은 스윙 시간(T_swing)과 접촉 스케줄이 어긋나 위상이 1 을 넘는
+    구간에서만 나타난다. 현재 게이트에서는 max_phase_seen 이 1+7e-16 이라
+    사실상 닫혀 있지만, 게이트를 바꾸는 순간 열린다.
+    """
+    dt = 1e-3
+    T = 0.15
+    gen = SwingTrajectoryGenerator(swing_duration_s=T, clearance_height_m=0.05)
+    tgt = np.zeros((3, 4)); tgt[:, 0] = [0.3, 0.1, 0.0]
+    n = int(round(1.5 * T / dt))                 # 위상 1.5 까지 (50% 초과)
+    P, V, A = _run_swing(gen, n, dt, tgt)
+
+    assert gen.max_phase_seen > 1.4               # 실제로 오버런했다
+    npt.assert_allclose(P[-1], [0.3, 0.1, 0.0], atol=1e-12)   # 위치는 목표에 고정
+    npt.assert_array_equal(V[-1], np.zeros(3))                # 속도 0
+    npt.assert_array_equal(A[-1], np.zeros(3))                # 가속도 0
+
+    # 위치가 상수인 구간에서 수치 미분도 0 - 위치와 미분이 일관된다
+    clipped = P[-20:]
+    npt.assert_allclose(np.diff(clipped, axis=0), 0.0, atol=1e-12)

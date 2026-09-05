@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from bezier import bezier
+from bezier import bezier, bezier_with_derivatives
 
 
 class SwingTrajectoryGenerator:
@@ -36,12 +36,28 @@ class SwingTrajectoryGenerator:
         self._liftoff_pos_W = np.zeros((3, 4))  # 발을 뗀 순간의 위치 (궤적 시작점)
         self._phase = np.zeros(4)            # 진행률 [0,1]. 로깅/디버깅용
         self._max_phase_seen = 0.0           # 클립 전 최댓값 — 위상 오버런 진단용
+        # 토크 구동 Plant(MuJoCo/실기)의 작업공간 PD + 피드포워드에 필요하다.
+        # SRBD 는 발을 운동학적으로 강제하므로 쓰지 않지만, 여기서 함께 만드는
+        # 이유는 위치와 그 미분이 **같은 곡선에서** 나와야 하기 때문이다.
+        # 따로 계산하면 언젠가 서로 맞지 않는 위치/속도 지령이 나간다.
+        self._vel_W = np.zeros((3, 4))
+        self._acc_W = np.zeros((3, 4))
 
     # ── 읽기 전용 상태 ───────────────────────────────────────────────
     @property
     def phase(self) -> NDArray[np.float64]:
         """각 다리의 스윙 진행률 [0,1]. 지지기는 0."""
         return self._phase.copy()
+
+    @property
+    def velocity_W(self) -> NDArray[np.float64]:
+        """(3,4) 스윙 발 목표 속도 [m/s]. 지지 다리는 0 (땅에 박혀 있으므로)."""
+        return self._vel_W.copy()
+
+    @property
+    def acceleration_W(self) -> NDArray[np.float64]:
+        """(3,4) 스윙 발 목표 가속도 [m/s^2]. 지지 다리는 0."""
+        return self._acc_W.copy()
 
     @property
     def max_phase_seen(self) -> float:
@@ -80,6 +96,8 @@ class SwingTrajectoryGenerator:
             if is_stance[leg]:
                 # 착지(touchdown). 타이머를 되감고 위치는 건드리지 않는다.
                 self._phase[leg] = 0.0
+                self._vel_W[:, leg] = 0.0
+                self._acc_W[:, leg] = 0.0
                 if self._elapsed[leg] > 0:
                     self._elapsed[leg] = 0.0
                 continue
@@ -98,6 +116,31 @@ class SwingTrajectoryGenerator:
             p0 = self._liftoff_pos_W[:, leg]
             p3 = p_feet_target_W[:, leg].copy()
             lift = np.array([0.0, 0.0, self.clearance_height_m])
-            p_out[:, leg] = bezier(phase, [p0, p0 + lift, p3 + lift, p3])
+            ctrl = [p0, p0 + lift, p3 + lift, p3]
+
+            # 위치와 미분을 같은 호출에서 뽑는다. bezier_with_derivatives 는
+            # 위치를 bezier() 에 위임하므로 두 경로가 구조적으로 갈라질 수 없다
+            # (bezier.py 의 설계 메모 참조).
+            p, v, a = bezier_with_derivatives(phase, ctrl,
+                                              duration_s=self.swing_duration_s)
+            p_out[:, leg] = p
+
+            # 결함 12 — 위상이 클립된 뒤에는 미분도 0 이어야 한다.
+            #   위치는 phase 를 [0,1] 로 클립하므로 s>1 에서 p3 에 머문다.
+            #   그런데 미분은 곡선의 끝점 도함수 B'(1) = -3*lift/T 를 그대로
+            #   돌려준다. 3차 베지에의 끝 속도는 0 이 아니라 수직 하강이므로,
+            #   이 궤적에서는 -1.0 m/s 다.
+            #
+            #   결과: 계획된 스윙 시간이 끝났는데도 "위치는 여기 고정, 속도는
+            #   초당 1m 로 내려가라" 는 서로 모순된 지령이 나간다. SRBD 는 발을
+            #   운동학적으로 강제하므로 아무 일도 없지만, 토크 구동에서는 이미
+            #   목표에 닿은 발을 계속 땅으로 밀어 넣는 지령이 된다.
+            #
+            #   궤적이 끝났다는 것은 '정지해서 착지를 기다린다'는 뜻이다.
+            #   위치가 상수면 그 미분은 0 이어야 한다 - 위치와 미분이 같은
+            #   함수에서 나온다는 불변식이 클립 구간에서도 성립해야 한다.
+            finished = raw_phase >= 1.0
+            self._vel_W[:, leg] = 0.0 if finished else v
+            self._acc_W[:, leg] = 0.0 if finished else a
 
         return p_out
