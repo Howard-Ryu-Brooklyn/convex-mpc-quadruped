@@ -21,4 +21,5 @@ results/
 sim_main/video/
 
 # 단, 회귀 기준선은 커밋되어야 한다 (테스트가 이걸 읽는다)
-!baselines/*.npz
+!baselines/*.npz_to_delete/
+.vscode/
