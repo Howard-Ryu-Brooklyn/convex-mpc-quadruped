@@ -44,6 +44,32 @@ def metrics(h, nominal_height, target_distance_m=0.0):
     }
 
 
+# 잡음 바닥(noise floor) — 이 아래의 변화는 물리적으로 의미가 없다.
+# 판단 기준은 '유효숫자가 몇 자리냐'가 아니라 '이 차이가 실기에서 구별
+# 가능한 양이냐'다. 상대 비교(ratio)만 쓰면 0 근처에서 반드시 거짓 경보가
+# 난다 — golden 테스트에서 rtol 만으로 near-zero 신호를 다룰 수 없어
+# 신호별 atol 을 넣었던 것과 정확히 같은 문제다.
+#   1e-4 m   = 0.1 mm   (엔코더/IMU 분해능 아래)
+#   1e-2 deg             (자세 추정 노이즈 아래)
+#   1e-3 m/s             (속도 추정 노이즈 아래)
+#   1e-1 N               (OSQP 수렴 오차 수준)
+NOISE_FLOOR = {
+    "[m/s]": 1e-3,   # "[m]" 보다 먼저 검사되어야 한다 (부분 문자열 포함 관계)
+    "[m]":   1e-4,
+    "[deg]": 1e-2,
+    "[N]":   1e-1,
+    "/ mg":  1e-4,
+}
+
+
+def _noise_floor(metric_name: str) -> float:
+    """지표 이름의 단위 표기로 잡음 바닥을 고른다. 모르면 0 (항상 비교)."""
+    for unit, floor in NOISE_FLOOR.items():
+        if unit in metric_name:
+            return floor
+    return 0.0
+
+
 def compare(name):
     path = ROOT / "baselines" / f"{name}.npz"
     if not path.exists():
@@ -64,7 +90,10 @@ def compare(name):
     print("─" * 68)
     for k in m_ref:
         a, b = m_ref[k], m_got[k]
-        if abs(a) < 1e-12:
+        if max(abs(a), abs(b)) < _noise_floor(k):
+            # 두 값 다 잡음 바닥 아래 → 비율이 몇이든 비교 자체가 무의미하다.
+            mark = "  —"
+        elif abs(a) < 1e-12:
             mark = "  —"
         else:
             ratio = b / a
@@ -78,5 +107,5 @@ def compare(name):
 
 
 if __name__ == "__main__":
-    for name in (sys.argv[1:] or ["S0_standing", "S1_trot_fwd"]):
+    for name in (sys.argv[1:] or ["S0_standing", "S1_trot_fwd", "S3_yaw"]):
         compare(name)
