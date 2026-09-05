@@ -1,0 +1,281 @@
+"""MuJoCo 모델과 config.py 의 대조 감사.
+
+왜 이 모듈이 필요한가
+─────────────────────
+SRB 시뮬레이션과 MuJoCo 시뮬레이션은 **다른 질문에 답한다**.
+
+    SRB     : MPC 알고리즘 자체가 옳은가?   → 모델 오차가 정의상 0 이어야 한다.
+    MuJoCo  : 선형화 가정이 실제 조건에서 얼마나 강인한가?
+              → 모델 오차가 **있어야 한다**. 그게 측정 대상이다.
+
+그래서 두 모델의 상수를 억지로 맞추면 안 된다. 질량을 45.84 로 고치는 순간
+"6.6% 질량 오차에서 이 MPC 가 걷는가" 라는, 답할 가치가 있는 질문이 사라진다.
+마찰도 같다. 피라미드로 푼 해가 원뿔 제약에서 미끄러지는지가 곧 논문 근사의
+대가를 재는 실험인데, 미리 mu/sqrt(2) 로 줄이면 재려던 것을 없애고 재게 된다.
+
+다만 두 종류를 구분해야 한다.
+
+    A. 모델 불확실성 = "값이 다르다"   → 제어기가 극복할 대상. 그대로 둔다.
+    B. 좌표계/규약 불일치 = "의미가 다르다" → 제어기가 극복할 수 없다. 버그다.
+
+B 의 예: p_feet_W 가 한쪽에서는 발 구(球)의 중심이고 다른 쪽에서는 접촉점이면,
+"발끝을 지면에" 라는 명령이 "발 중심을 지면에(= 2.5cm 관통)" 가 된다. 이건
+강인성 시험이 아니라 질문 자체가 성립하지 않는 상태다. B 를 먼저 없애야 A 의
+결과를 믿을 수 있다 — 안 그러면 미끄러짐을 봤을 때 그게 마찰 근사 탓인지
+관통 탓인지 구별할 방법이 없다.
+
+이 모듈이 하는 일
+─────────────────
+1. 의도한 불일치(A)는 **크기를 계산해 보고**한다. 실험 결과를 해석하려면
+   불확실성의 크기를 알아야 한다.
+2. 의도하지 않은 불일치(B, 그리고 설정 표류)는 **즉시 예외**로 막는다.
+
+의도를 주석이 아니라 실행 시 검증으로 남기는 것이 핵심이다. 나중에 XML 을
+손대서 힙 위치가 바뀌었을 때 "이것도 의도한 불확실성인가?" 를 고민하지 않아도
+된다 — 선언 목록에 없으면 터진다.
+
+구조: 순수 로직(audit)과 엔진 경계(extract_model_facts)를 분리한다.
+MuJoCo 없이도 이 모듈을 import 하고 테스트할 수 있어야, 실패했을 때 원인이
+물리 엔진인지 판정 로직인지 헷갈리지 않는다. angles.py 와 같은 원칙이다.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+import config as cfg
+
+LEG_NAMES = ("FR", "FL", "RR", "RL")
+
+#: 힙 배치가 이보다 어긋나면 규약이 깨진 것으로 본다 [m].
+HIP_POSITION_TOL_M = 1e-3
+
+
+class UnexpectedModelMismatch(RuntimeError):
+    """선언되지 않은 불일치. 실험을 시작하기 전에 반드시 해결해야 한다."""
+
+
+@dataclass(frozen=True)
+class ModelFacts:
+    """MuJoCo 모델에서 읽어낸 사실들. 엔진 타입에 의존하지 않는 순수 값."""
+
+    total_mass_kg: float
+    trunk_mass_kg: float
+    inertia_about_com_diag: tuple[float, float, float]  # 평행축 정리 추정치
+    hip_positions_B: np.ndarray          # (3, 4) trunk 기준, FR FL RR RL 순
+    foot_sphere_radius_m: float
+    floor_friction_mu: float
+    cone_type: str                       # "pyramidal" | "elliptic"
+    torque_limit_nm: float
+    joint_damping: float
+    joint_frictionloss: float
+    n_actuators: int
+
+
+@dataclass(frozen=True)
+class Mismatch:
+    name: str
+    expected: object
+    actual: object
+    rel_delta: float | None      # 상대 오차. 비수치 항목은 None
+    intentional: bool
+    note: str
+
+
+def pyramid_effective_mu(mu: float) -> float:
+    """사각(피라미드) 제약이 실제로 허용하는 최대 유효 마찰계수.
+
+    MPC 제약은 |fx| <= mu*fz, |fy| <= mu*fz 다. 이는 반지름 mu*fz 인 원에
+    **외접**하는 정사각형이므로, 대각선 방향으로는 ||f_xy|| 이 sqrt(2)*mu*fz
+    까지 허용된다. MuJoCo 의 elliptic cone 은 그 원 자체다.
+
+    따라서 대각선 방향 힘에서만 미끄러진다 — 축 방향으로는 절대 안 미끄러진다.
+    "왜 특정 방향으로만 미끄러지는가" 의 답이 이 한 줄에 있다.
+    """
+    return float(np.sqrt(2.0) * mu)
+
+
+def _rel(expected: float, actual: float) -> float:
+    return float("inf") if expected == 0 else (actual - expected) / expected
+
+
+def audit(facts: ModelFacts, *, strict: bool = True) -> list[Mismatch]:
+    """모델 사실과 config.py 를 대조한다.
+
+    Args:
+        facts: extract_model_facts() 가 만든 값, 또는 테스트용 수동 구성.
+        strict: True 면 의도하지 않은 불일치에서 UnexpectedModelMismatch.
+
+    Returns:
+        모든 불일치. 의도한 것은 intentional=True 로 표시되어 함께 돌아온다
+        (보고용). 일치하는 항목은 목록에 없다.
+    """
+    out: list[Mismatch] = []
+
+    # ── A. 의도된 모델 불확실성 — 크기를 잰다 ──────────────────────────
+    if not np.isclose(facts.total_mass_kg, cfg.m):
+        out.append(Mismatch(
+            "질량", cfg.m, facts.total_mass_kg,
+            _rel(cfg.m, facts.total_mass_kg), True,
+            "MPC 는 논문 값(몸통)만 안다. 다리 질량만큼 중력 보상이 모자란다.",
+        ))
+
+    for axis, expected, actual in zip(
+        ("Ixx", "Iyy", "Izz"),
+        (cfg.Ixx, cfg.Iyy, cfg.Izz),
+        facts.inertia_about_com_diag,
+    ):
+        if not np.isclose(expected, actual, rtol=0.02):
+            out.append(Mismatch(
+                axis, expected, actual, _rel(expected, actual), True,
+                "MPC 는 몸통 관성만 쓴다. 다리의 평행축 기여가 빠져 있다.",
+            ))
+
+    if facts.cone_type != "pyramidal":
+        out.append(Mismatch(
+            "마찰 원뿔 형상", "pyramidal (MPC 가정)", facts.cone_type, None, True,
+            f"MPC 는 대각선 방향으로 유효 mu={pyramid_effective_mu(facts.floor_friction_mu):.3f} "
+            f"까지 명령할 수 있으나 엔진은 {facts.floor_friction_mu:.3f} 에서 미끄러뜨린다.",
+        ))
+
+    if facts.joint_damping > 0 or facts.joint_frictionloss > 0:
+        out.append(Mismatch(
+            "관절 마찰", "없음 (SRBD)",
+            f"damping={facts.joint_damping}, frictionloss={facts.joint_frictionloss}",
+            None, True, "SRBD 에는 존재하지 않는 소산 항.",
+        ))
+
+    # ── B. 규약 불일치 / 설정 표류 — 즉시 막는다 ────────────────────────
+    if facts.n_actuators != 12:
+        out.append(Mismatch(
+            "액추에이터 수", 12, facts.n_actuators, None, False,
+            "3 관절 x 4 다리 전제가 깨졌다.",
+        ))
+
+    hip_err = np.abs(facts.hip_positions_B - cfg.hip_location_bf).max()
+    if hip_err > HIP_POSITION_TOL_M:
+        out.append(Mismatch(
+            "힙 배치", "cfg.hip_location_bf", f"최대 오차 {hip_err:.4f} m",
+            None, False,
+            "Raibert 발판 계획과 토크암이 전부 이 배치를 전제한다. "
+            "다리 순서(FR FL RR RL)가 뒤바뀐 경우도 여기서 걸린다.",
+        ))
+
+    # mu 값 자체는 일치해야 한다. 의도한 차이는 '원뿔의 모양'이지 '마찰계수'가
+    # 아니다. 여기가 흐려지면 미끄러짐의 원인을 근사 탓인지 설정 탓인지
+    # 구별할 수 없게 된다.
+    if not np.isclose(facts.floor_friction_mu, cfg.MU_FRICTION, rtol=1e-6):
+        out.append(Mismatch(
+            "마찰계수 mu", cfg.MU_FRICTION, facts.floor_friction_mu,
+            _rel(cfg.MU_FRICTION, facts.floor_friction_mu), False,
+            "원뿔 '모양'의 차이는 의도했지만 mu 값의 차이는 의도하지 않았다.",
+        ))
+
+    if not np.isclose(facts.torque_limit_nm, cfg.TAU_MAX, rtol=1e-6):
+        out.append(Mismatch(
+            "토크 한계", cfg.TAU_MAX, facts.torque_limit_nm,
+            _rel(cfg.TAU_MAX, facts.torque_limit_nm), False,
+            "엔진이 MPC 제약보다 관대하면 실기에서 불가능한 해로 걷게 된다.",
+        ))
+
+    if facts.foot_sphere_radius_m <= 0:
+        out.append(Mismatch(
+            "발 반지름", "> 0", facts.foot_sphere_radius_m, None, False,
+            "접촉점 = site - [0,0,r] 규약을 세울 수 없다.",
+        ))
+
+    if strict:
+        bad = [m for m in out if not m.intentional]
+        if bad:
+            raise UnexpectedModelMismatch(
+                "선언되지 않은 모델 불일치:\n" + format_report(bad)
+            )
+    return out
+
+
+def format_report(mismatches: list[Mismatch]) -> str:
+    """사람이 읽는 보고서. 실행할 때마다 로그에 남긴다."""
+    if not mismatches:
+        return "[model_audit] 불일치 없음"
+
+    def fmt(v):
+        return f"{v:.4g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v)
+
+    lines = ["[model_audit] 모델 대조"]
+    for m in mismatches:
+        tag = "의도됨" if m.intentional else "⚠️ 미선언"
+        delta = "" if m.rel_delta is None else f"  (Δ {m.rel_delta:+.1%})"
+        lines.append(f"  [{tag}] {m.name}: MPC {fmt(m.expected)} / 모델 {fmt(m.actual)}{delta}")
+        lines.append(f"           {m.note}")
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 엔진 경계 — 이 아래에서만 mujoco 를 만진다
+# ─────────────────────────────────────────────────────────────────────
+def extract_model_facts(model, data) -> ModelFacts:
+    """MuJoCo 모델/데이터에서 ModelFacts 를 읽는다.
+
+    data 는 nominal 자세로 mj_forward 가 끝난 상태여야 한다. 관성 추정이
+    현재 자세에 의존하기 때문이다 (다리를 접으면 관성이 달라진다).
+
+    관성은 **추정치**다: 각 링크의 자체 관성 대각합 + 평행축 기여만 더하고
+    링크 자체의 회전은 무시한다. 이 모델의 다리 링크 관성은 x,y 가 같아
+    (0.00318, 0.00318, 0.0005) 회전에 거의 둔감하므로 크기를 재는 데는 충분하다.
+    정확한 복합 관성이 필요해지면 mj_fullM 의 6x6 블록으로 바꾼다.
+    """
+    import mujoco  # noqa: PLC0415  — 경계 안에서만 필요하다
+
+    mujoco.mj_forward(model, data)
+
+    com = data.subtree_com[0].copy()
+    inertia = np.zeros(3)
+    for bid in range(1, model.nbody):
+        m_i = float(model.body_mass[bid])
+        if m_i == 0.0:
+            continue
+        d = data.xipos[bid] - com
+        own = np.asarray(model.body_inertia[bid], dtype=float)
+        # 평행축: I_xx += m(dy^2+dz^2) 등
+        inertia += own + m_i * np.array([
+            d[1] ** 2 + d[2] ** 2,
+            d[0] ** 2 + d[2] ** 2,
+            d[0] ** 2 + d[1] ** 2,
+        ])
+
+    trunk_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "trunk")
+    hips = np.zeros((3, 4))
+    for i, leg in enumerate(LEG_NAMES):
+        bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"{leg}_hip")
+        if bid < 0:
+            raise UnexpectedModelMismatch(f"{leg}_hip body 를 찾을 수 없다.")
+        hips[:, i] = model.body_pos[bid]
+
+    floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    mu = float(model.geom_friction[floor_id][0]) if floor_id >= 0 else float("nan")
+
+    # 발 구: calf 바디에 달린 sphere geom 중 가장 아래 있는 것
+    radius = 0.0
+    calf_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "FR_calf")
+    for gid in range(model.ngeom):
+        if model.geom_bodyid[gid] == calf_id and model.geom_type[gid] == mujoco.mjtGeom.mjGEOM_SPHERE:
+            radius = float(model.geom_size[gid][0])
+
+    cone = "elliptic" if model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC else "pyramidal"
+    frange = np.abs(model.actuator_forcerange).max() if model.nu else 0.0
+
+    return ModelFacts(
+        total_mass_kg=float(model.body_mass.sum()),
+        trunk_mass_kg=float(model.body_mass[trunk_id]),
+        inertia_about_com_diag=tuple(float(v) for v in inertia),
+        hip_positions_B=hips,
+        foot_sphere_radius_m=radius,
+        floor_friction_mu=mu,
+        cone_type=cone,
+        torque_limit_nm=float(frange),
+        joint_damping=float(np.max(model.dof_damping[6:])) if model.nv > 6 else 0.0,
+        joint_frictionloss=float(np.max(model.dof_frictionloss[6:])) if model.nv > 6 else 0.0,
+        n_actuators=int(model.nu),
+    )
