@@ -27,7 +27,10 @@ def capture(name: str) -> Path:
     BASELINE_DIR.mkdir(exist_ok=True)
     out = BASELINE_DIR / f"{name}.npz"
     arrays = {k: v for k, v in result.items() if isinstance(v, np.ndarray)}
-    np.savez_compressed(out, **arrays)
+    # numpy 스텁이 savez_compressed 의 2번째 위치 인자를 bool 로 본다.
+    # 도구의 한계이지 우리 코드의 문제가 아니다 - 알고 무시하는 것과
+    # 모르고 지나가는 것은 다르므로 이유를 남긴다.
+    np.savez_compressed(out, **arrays)  # type: ignore[arg-type]
     print(f"✅ {name}: {out}  ({out.stat().st_size / 1024:.1f} KB, {len(result['t'])} 샘플)")
     return out
 

@@ -11,6 +11,8 @@ horizon 조립 결과가 '반환값'이 되어 결함 2 가 구조적으로 불�
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -26,7 +28,7 @@ def build_reference_trajectory(
     target_height_m: float,
     horizon: int,
     mpc_dt: float,
-):
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """MPC 참조 궤적 (13*k, 1) 과 스텝별 예측 yaw (k,) 를 만든다.
 
     Args:
@@ -71,7 +73,7 @@ def raibert_footholds(
     p_com_W: NDArray[np.float64],
     v_com_W: NDArray[np.float64],
     T_stance: float,
-):
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Raibert heuristic 으로 다음 착지점을 계산한다.
 
         p_foot = p_hip + (T_stance / 2) * v_com
@@ -115,7 +117,7 @@ def build_contact_schedule(
     current_time: float,
     gait_period: float,
     gait_duty: float,
-    gait_phase_offset,
+    gait_phase_offset: Sequence[float] | NDArray[np.float64],
     horizon: int,
     mpc_dt: float,
 ) -> NDArray[np.bool_]:

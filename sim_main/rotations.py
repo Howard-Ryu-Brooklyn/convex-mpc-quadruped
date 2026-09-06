@@ -86,7 +86,7 @@ def omega_to_rpy_rate(pitch: float, yaw: float) -> NDArray[np.float64]:
     ])
 
 
-def matrix_to_rpy(R) -> NDArray[np.float64]:
+def matrix_to_rpy(R: NDArray[np.float64]) -> NDArray[np.float64]:
     """회전 행렬 R_W_B -> ZYX 오일러각 (roll, pitch, yaw). rpy_to_matrix 의 역함수.
 
     MuJoCo 는 자세를 쿼터니언/회전행렬로 들고 있고 MPC 는 ZYX 오일러각으로

@@ -21,3 +21,42 @@ filterwarnings = [
     "ignore:.*resetCache.*:DeprecationWarning",
     "ignore:.*enablePackrat.*:DeprecationWarning",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# mypy — 타입 힌팅을 '주석'에서 '검사'로 바꾸는 지점
+# ─────────────────────────────────────────────────────────────────────
+# 검사기를 돌리지 않는 타입은 독스트링과 다를 바 없다. 이 프로젝트는
+# 독스트링이 규약을 강제하지 못한다는 것을 두 번 확인했다 —
+# 결함 5(절대/상대 위치)와 결함 11("왼쪽 다리: 양수"라고 적혀 있었으나
+# 호출부는 네 다리에 같은 값을 넘겼다).
+#
+# 전략: 전역은 관대하게, **타입을 붙인 모듈만** 엄격하게.
+# 한 번에 전부 켜면 수백 개 오류에 묻혀 진짜 신호를 못 본다. 이미 정리된
+# 모듈부터 잠그고, 새로 정리하는 모듈을 아래 목록에 추가해 나간다.
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "sim_main"
+files = ["sim_main", "tests", "scripts"]
+
+# numpy 배열 별칭(Annotated NDArray)은 형상까지 검사하지 못한다.
+# 그래도 '이게 배열인가 float 인가 리스트인가'는 잡아 준다.
+ignore_missing_imports = true       # osqp / mujoco / mediapy 에 스텁이 없다
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+# 아직 정리되지 않은 모듈. 정리하면 여기서 지운다.
+[[tool.mypy.overrides]]
+module = ["visualization", "plot_data", "presentation_plot", "dynamics", "gait_planning"]
+ignore_errors = true
+
+# 정리 완료 — 여기 있는 모듈은 타입 없는 정의를 허용하지 않는다.
+[[tool.mypy.overrides]]
+module = [
+    "angles", "bezier", "clock", "convex_mpc", "model_audit",
+    "planning", "plant_base", "robot_types", "rotations", "swing",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

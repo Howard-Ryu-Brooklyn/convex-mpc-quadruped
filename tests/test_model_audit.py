@@ -5,6 +5,8 @@ MuJoCo 를 import 하지 않는다. 판정 로직(audit)과 엔진 경계
 "무엇을 의도한 차이로 볼 것인가" 라는 정책이 회귀 없이 지켜지는지 검사한다.
 """
 
+from typing import Any
+
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -21,13 +23,13 @@ from model_audit import (
 )
 
 
-def make_facts(**overrides) -> ModelFacts:
+def make_facts(**overrides: object) -> ModelFacts:
     """cfg 와 '완전히 일치하는' 가상의 모델. 여기서 하나씩 어긋뜨려 시험한다.
 
     기준값이 통과하는지를 먼저 보장해야, 이후 실패가 '내가 어긋뜨린 그것'
     때문임을 알 수 있다.
     """
-    base = dict(
+    base: dict[str, Any] = dict(
         total_mass_kg=cfg.m,
         trunk_mass_kg=cfg.m,
         inertia_about_com_diag=(cfg.Ixx, cfg.Iyy, cfg.Izz),

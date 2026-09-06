@@ -41,9 +41,12 @@ MuJoCo 없이도 이 모듈을 import 하고 테스트할 수 있어야, 실패�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 import config as cfg
 
@@ -103,8 +106,13 @@ def _rel(expected: float, actual: float) -> float:
     return float("inf") if expected == 0 else (actual - expected) / expected
 
 
-def composite_inertia_diag(masses, positions, principal_inertias,
-                           orientations, ref_point) -> np.ndarray:
+def composite_inertia_diag(
+    masses: Sequence[float] | NDArray[np.float64],
+    positions: Sequence[Sequence[float]] | NDArray[np.float64],
+    principal_inertias: Sequence[Sequence[float]] | NDArray[np.float64],
+    orientations: Sequence[NDArray[np.float64]] | NDArray[np.float64],
+    ref_point: Sequence[float] | NDArray[np.float64],
+) -> NDArray[np.float64]:
     """여러 강체의 합성 관성 텐서 대각항을 ref_point 기준으로 계산한다.
 
     ★ 이 함수가 따로 있는 이유 (내 버그의 흔적)
@@ -272,7 +280,7 @@ def format_report(mismatches: list[Mismatch]) -> str:
     if not mismatches:
         return "[model_audit] 불일치 없음"
 
-    def fmt(v):
+    def fmt(v: object) -> str:
         return f"{v:.4g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v)
 
     lines = ["[model_audit] 모델 대조"]
@@ -287,7 +295,7 @@ def format_report(mismatches: list[Mismatch]) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # 엔진 경계 — 이 아래에서만 mujoco 를 만진다
 # ─────────────────────────────────────────────────────────────────────
-def extract_model_facts(model, data) -> ModelFacts:
+def extract_model_facts(model: Any, data: Any) -> ModelFacts:
     """MuJoCo 모델/데이터에서 ModelFacts 를 읽는다.
 
     data 는 nominal 자세로 mj_forward 가 끝난 상태여야 한다. 관성 추정이
@@ -348,7 +356,7 @@ def extract_model_facts(model, data) -> ModelFacts:
     return ModelFacts(
         total_mass_kg=float(model.body_mass.sum()),
         trunk_mass_kg=float(model.body_mass[trunk_id]),
-        inertia_about_com_diag=tuple(float(v) for v in inertia),
+        inertia_about_com_diag=(float(inertia[0]), float(inertia[1]), float(inertia[2])),
         hip_positions_B=hips,
         foot_sphere_radius_m=radius,
         floor_friction_mu=mu,

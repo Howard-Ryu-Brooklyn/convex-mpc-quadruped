@@ -28,10 +28,13 @@ SRB 와 MuJoCo 는 다른 질문에 답한다 (model_audit.py 참조)
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+from numpy.typing import NDArray
 
 from angles import AngleUnwrapper
-from model_audit import audit, extract_model_facts, format_report
+from model_audit import ModelFacts, audit, extract_model_facts, format_report
 from plant_base import PlantBase
 from robot_types import ControlCommand, RobotState
 from rotations import matrix_to_rpy
@@ -48,7 +51,8 @@ class MuJoCoPlant(PlantBase):
     (결함 2, 9 가 그 경로로 들어왔다).
     """
 
-    def __init__(self, xml_path: str, dt: float, home_qpos=None,
+    def __init__(self, xml_path: str | Path, dt: float,
+                 home_qpos: NDArray[np.float64] | None = None,
                  audit_strict: bool = True, verbose: bool = True,
                  swing_omega_n: float = 240.0, swing_zeta: float = 1.0) -> None:
         import mujoco  # noqa: PLC0415 — 엔진 경계 안에서만 필요하다
@@ -293,7 +297,7 @@ class MuJoCoPlant(PlantBase):
         return np.asarray(self._data.qpos[7:], dtype=float).reshape(4, 3).T.copy()
 
     @property
-    def facts(self):
+    def facts(self) -> ModelFacts:
         """감사에 쓰인 모델 사실들 (읽기 전용)."""
         return self._facts
 

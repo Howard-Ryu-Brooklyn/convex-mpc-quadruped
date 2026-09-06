@@ -22,11 +22,12 @@ pi rad/step = 3141 rad/s = 180000 deg/s 이므로 물리적으로 위반할 수 
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import NDArray
 
 TWO_PI = 2.0 * np.pi
 
 
-def wrap_to_pi(angle_rad):
+def wrap_to_pi(angle_rad: float | NDArray[np.float64]) -> NDArray[np.float64]:
     """각도를 [-pi, pi) 로 접는다. 스칼라와 배열 모두 받는다."""
     return (np.asarray(angle_rad) + np.pi) % TWO_PI - np.pi
 
@@ -57,20 +58,24 @@ class AngleUnwrapper:
                 관측값을 그대로 시작값으로 삼는다. 로봇이 yaw=0 이 아닌
                 자세에서 출발하는 경우에만 명시한다.
         """
-        self._continuous: float | None = None
-        self._prev_wrapped: float | None = None
+        # 두 값은 **항상 함께** 설정되거나 함께 None 이다. 그 불변식이 타입에
+        # 없으면 mypy 가 update() 의 `self._continuous += delta` 를 거부한다
+        # (float | None 에 float 를 더할 수 없으므로). 지금은 우연히 맞지만
+        # 우연에 기대는 것과 표현된 것은 다르다 - 하나의 Optional 튜플로 묶어
+        # "둘 다 있거나 둘 다 없다"를 타입이 말하게 한다.
+        self._seed: tuple[float, float] | None = None   # (연속각, 직전 접힌각)
         self._max_abs_step: float = 0.0
 
         if initial_angle_rad is not None:
-            self._continuous = float(initial_angle_rad)
-            self._prev_wrapped = float(wrap_to_pi(initial_angle_rad))
+            self._seed = (float(initial_angle_rad),
+                          float(wrap_to_pi(initial_angle_rad)))
 
     @property
     def value(self) -> float:
         """현재 연속 각도 [rad]. update() 를 한 번도 안 불렀으면 ValueError."""
-        if self._continuous is None:
+        if self._seed is None:
             raise ValueError("update() 를 한 번도 호출하지 않았다.")
-        return self._continuous
+        return self._seed[0]
 
     @property
     def max_abs_step_rad(self) -> float:
@@ -86,20 +91,29 @@ class AngleUnwrapper:
         """접힌 관측값 하나를 받아 연속 각도를 갱신하고 반환한다."""
         wrapped = float(wrapped_angle_rad)
 
-        if self._prev_wrapped is None:
-            self._prev_wrapped = wrapped
-            self._continuous = wrapped
-            return self._continuous
+        if self._seed is None:
+            self._seed = (wrapped, wrapped)
+            return wrapped
+
+        continuous, prev_wrapped = self._seed
 
         # 두 접힌 값의 차이를 다시 접으면 '최단 회전 경로'가 된다.
         # 이것이 unwrap 의 전부다: +pi -> -pi 점프(-2pi)는 +eps 로 읽힌다.
-        delta = float(wrap_to_pi(wrapped - self._prev_wrapped))
+        delta = float(wrap_to_pi(wrapped - prev_wrapped))
 
         self._max_abs_step = max(self._max_abs_step, abs(delta))
-        self._continuous += delta
-        self._prev_wrapped = wrapped
-        return self._continuous
+        self._seed = (continuous + delta, wrapped)
+        return self._seed[0]
 
     def reset(self, initial_angle_rad: float | None = None) -> None:
-        """시나리오를 다시 돌릴 때 호출한다. 진단값도 함께 초기화된다."""
-        self.__init__(initial_angle_rad)  # noqa: PLC2801
+        """시나리오를 다시 돌릴 때 호출한다. 진단값도 함께 초기화된다.
+
+        self.__init__() 을 부르지 않는 이유: 서브클래스에서 깨진다. 파생
+        클래스의 __init__ 은 다른 인자를 요구할 수 있는데, 인스턴스를 통해
+        __init__ 을 부르면 그쪽이 호출된다. 상태를 명시적으로 되돌린다.
+        """
+        self._seed = (
+            None if initial_angle_rad is None
+            else (float(initial_angle_rad), float(wrap_to_pi(initial_angle_rad)))
+        )
+        self._max_abs_step = 0.0

@@ -170,7 +170,11 @@ def run_scenario_mujoco(
             break
 
         # 🟦 상위 제어기 (MPC) — 주기 + 접촉 전이 이벤트 구동
-        contact_changed = not np.array_equal(is_stance_now, stance_mask_at_solve)
+        # 'is None' 을 앞에 두는 이유: 첫 스텝은 무조건 푼다는 의도를 코드가
+        # 말하게 한다. np.array_equal(x, None) 은 우연히 False 를 돌려주지만
+        # 그건 numpy 의 object 배열 변환에 기댄 것이지 표현된 의도가 아니다.
+        contact_changed = (stance_mask_at_solve is None
+                           or not np.array_equal(is_stance_now, stance_mask_at_solve))
         if contact_changed and not clock.is_mpc_tick(sim_cnt):
             n_event_solves += 1
         if clock.is_mpc_tick(sim_cnt) or contact_changed:
@@ -240,8 +244,14 @@ def run_scenario_mujoco(
     h = log.arrays()
     n_log = len(log)
     return {
-        "completed":      not diverged,
-        "diverged_at_s":  None if not diverged else sim_cnt * clock.dt,
+        # TODO(Step 3): 반환 타입이 dict[str, ndarray] 인데 bool 과
+        #   float|None 을 넣고 있다. 타입 오류이기 이전에 설계 신호다 -
+        #   "결과"(신호 배열)와 "실행 상태"(완주 여부)가 한 딕셔너리에
+        #   섞여 있다. ScenarioResult 데이터클래스로 분리한다.
+        #   warn_unused_ignores=true 이므로, 고쳐지면 이 ignore 자체가
+        #   오류가 되어 자동으로 알려준다 (xfail(strict=True) 와 같은 원리).
+        "completed":      not diverged,  # type: ignore[dict-item]
+        "diverged_at_s":  None if not diverged else sim_cnt * clock.dt,  # type: ignore[dict-item]
         "t":              np.arange(n_log) * (clock.log_every * clock.dt),
         "com_pos":        h["x"][:, 3:6],
         "com_vel":        h["x"][:, 9:12],

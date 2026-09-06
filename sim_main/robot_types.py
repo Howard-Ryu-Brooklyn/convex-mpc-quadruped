@@ -35,6 +35,16 @@ Mat3 = Annotated[NDArray[np.float64], "(3, 3)"]
 Bool4 = Annotated[NDArray[np.bool_], "(4,) — 인덱스 = Leg"]
 
 
+# ── MPC 전용 별칭 ────────────────────────────────────────────────────────
+# 13차원 상태의 레이아웃은 RobotState.to_mpc_vector() 가 정의한다.
+# 그 규약이 지금까지 convex_mpc.py 쪽에는 이름으로 존재하지 않았고,
+# 결함 1(Ac[0:3,6:9] 의 전치 누락)이 나온 자리가 정확히 거기다.
+StateVec13 = Annotated[NDArray[np.float64], "(13,1) — [Θ(3) p(3) ω(3) v(3) g(1)]"]
+StateTraj13k = Annotated[NDArray[np.float64], "(13k,1) — horizon 참조 궤적"]
+ForceVec12 = Annotated[NDArray[np.float64], "(12,) — [fx fy fz] x 4, Leg 순서"]
+ContactSeq4k = Annotated[NDArray[np.float64], "(4,k) — 구 규약: 0=GROUND, 1=AIR"]
+
+
 class Leg(IntEnum):
     """다리 인덱스.
 

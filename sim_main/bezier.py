@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import math
 
+from collections.abc import Sequence
+
 import numpy as np
 from numpy.typing import NDArray
 
 
-def bezier(s: float, control_points) -> NDArray[np.float64]:
+def bezier(s: float, control_points: Sequence[NDArray[np.float64]] | NDArray[np.float64]) -> NDArray[np.float64]:
     """N 차 베지에 곡선 위의 한 점.
 
     Args:
@@ -46,7 +48,11 @@ def bezier(s: float, control_points) -> NDArray[np.float64]:
     return p
 
 
-def bezier_with_derivatives(s: float, control_points, duration_s: float = 0.3):
+def bezier_with_derivatives(
+    s: float,
+    control_points: Sequence[NDArray[np.float64]] | NDArray[np.float64],
+    duration_s: float = 0.3,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """베지에 곡선의 위치와 시간 미분(속도, 가속도)을 해석적으로 계산한다.
 
     Args:

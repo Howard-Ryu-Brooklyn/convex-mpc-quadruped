@@ -2,8 +2,12 @@
 """허용오차는 감으로 정하지 않는다. 측정해서 정한다."""
 import numpy as np
 from scenario_runner import run_scenario
+from scenarios import ScenarioSpec
 
-S1 = dict(gait_name="trotting", v_des_x=1.0, omega_z_deg_s=0.0, duration_s=3.0)
+# 평범한 dict 는 값 타입이 섞여 dict[str, object] 로 추론되고, **kwargs 로
+# 펼치면 검사기가 모든 인자에 불평한다. 그보다 중요한 것은 키 오타를
+# 잡아준다는 점이다 (scenarios.ScenarioSpec 참조).
+S1 = ScenarioSpec(gait_name="trotting", v_des_x=1.0, omega_z_deg_s=0.0, duration_s=3.0)
 
 runs = [run_scenario(**S1) for _ in range(5)]
 ref = runs[0]

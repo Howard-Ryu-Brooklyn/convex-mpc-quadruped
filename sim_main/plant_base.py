@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from robot_types import ControlCommand, RobotState
+from robot_types import ControlCommand, RobotState, Vec3x4
 
 
 class PlantBase(ABC):
@@ -56,7 +56,7 @@ class PlantBase(ABC):
         """
 
     @abstractmethod
-    def hip_positions_W(self):
+    def hip_positions_W(self) -> Vec3x4:
         """(3,4) 네 고관절의 월드 좌표 [m].
 
         Raibert 발판 계획의 기준점이다. 이것이 Plant 의 책임인 이유는

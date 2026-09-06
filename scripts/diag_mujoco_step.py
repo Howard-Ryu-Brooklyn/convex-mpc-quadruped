@@ -106,8 +106,8 @@ def main() -> None:
         plant.step(cmd)
         err.append(np.linalg.norm(plant.feet_positions_W()[:, 0] - p_feet[:, 0]))
 
-    err = np.array(err)
-    print(f"   omega_n=60 : 평균 오차 {err.mean()*1000:6.2f} mm, 최대 {err.max()*1000:6.2f} mm,"
+    err_arr = np.array(err)
+    print(f"   omega_n=60 : 평균 오차 {err_arr.mean()*1000:6.2f} mm, 최대 {err_arr.max()*1000:6.2f} mm,"
           f" 최대토크 {plant.max_abs_torque_nm:5.1f} Nm")
 
     print("\n   대역폭 스윕 — 오차가 게인에 반비례하면 '지연'이고, 안 변하면 '구조'다")
@@ -127,9 +127,9 @@ def main() -> None:
                                    is_stance=is_stance,
                                    v_feet_W=sw.velocity_W, a_feet_W=sw.acceleration_W))
             e.append(np.linalg.norm(pl.feet_positions_W()[:, 0] - pf[:, 0]))
-        e = np.array(e)
+        e_arr = np.array(e)
         final = np.linalg.norm(pl.feet_positions_W()[:, 0] - tg[:, 0])
-        print(f"     omega_n={wn:5.0f} rad/s : 평균 {e.mean()*1000:6.2f} mm  최대 {e.max()*1000:6.2f} mm"
+        print(f"     omega_n={wn:5.0f} rad/s : 평균 {e_arr.mean()*1000:6.2f} mm  최대 {e_arr.max()*1000:6.2f} mm"
               f"  착지 오차 {final*1000:6.2f} mm  최대토크 {pl.max_abs_torque_nm:6.1f} Nm")
     print(f"   (토크 한계 {cfg.TAU_MAX} Nm)")
 

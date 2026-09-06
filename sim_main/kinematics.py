@@ -19,6 +19,7 @@ from __future__ import annotations
 import numpy as np
 
 import config as cfg
+from robot_types import Mat3, Vec3, Vec3x4
 
 
 #: 다리별 abad 링크가 뻗는 y 방향 부호. FR/RR 은 -y, FL/RL 은 +y.
@@ -27,8 +28,13 @@ import config as cfg
 LEG_HIP_SIGN = np.sign(cfg.hip_location_bf[1, :])
 
 
-def leg_link_positions(q, leg, l_hip=cfg.link_hip,
-                       l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+def leg_link_positions(
+    q: Vec3,
+    leg: int,
+    l_hip: float = cfg.link_hip,
+    l_thigh: float = cfg.link_upper,
+    l_calf: float = cfg.link_lower,
+) -> Vec3x4:
     """관절각 -> 링크 연결점 4개 (3,4): [고관절, abad 끝, 무릎, 발끝].
 
     고관절 원점 기준, 바디 프레임. 시각화가 다리를 그릴 때 쓴다.
@@ -53,8 +59,13 @@ def leg_link_positions(q, leg, l_hip=cfg.link_hip,
     return np.stack([p_hip, p_abad, p_knee, p_foot], axis=1)
 
 
-def leg_forward_kinematics(q, leg, l_hip=cfg.link_hip,
-                           l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+def leg_forward_kinematics(
+    q: Vec3,
+    leg: int,
+    l_hip: float = cfg.link_hip,
+    l_thigh: float = cfg.link_upper,
+    l_calf: float = cfg.link_lower,
+) -> Vec3:
     """관절각 -> 고관절 원점 기준 발 위치 (바디 프레임). compute_leg_ik 의 역함수.
 
     FK 가 여기 하나만 있어야 하는 이유
@@ -77,8 +88,14 @@ def leg_forward_kinematics(q, leg, l_hip=cfg.link_hip,
     return leg_link_positions(q, leg, l_hip, l_thigh, l_calf)[:, 3]
 
 
-def compute_leg_ik(p_foot, leg, l_hip=cfg.link_hip, l_thigh=cfg.link_upper,
-                   l_calf=cfg.link_lower, clip=True):
+def compute_leg_ik(
+    p_foot: Vec3,
+    leg: int,
+    l_hip: float = cfg.link_hip,
+    l_thigh: float = cfg.link_upper,
+    l_calf: float = cfg.link_lower,
+    clip: bool = True,
+) -> Vec3:
         """
         해석적 역기구학(Analytical IK)을 통해 목표 발 위치에 대한 관절 각도를 계산합니다.
         
@@ -173,7 +190,11 @@ def compute_leg_ik(p_foot, leg, l_hip=cfg.link_hip, l_thigh=cfg.link_upper,
         return clip_q(q1, q2, q3)
 
 
-def get_q(height, l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+def get_q(
+    height: float,
+    l_thigh: float = cfg.link_upper,
+    l_calf: float = cfg.link_lower,
+) -> Vec3x4:
     """발이 고관절 바로 아래(height 만큼)에 있는 자세의 관절각 (3,4).
 
     예전에는 q1 = 0 을 네 다리에 그대로 복사했다. 그런데 abad 링크가 y 로
@@ -191,14 +212,14 @@ def get_q(height, l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
     )
 
 
-def clip_q(q1,q2,q3):
+def clip_q(q1: float, q2: float, q3: float) -> Vec3:
     clip_q1 = np.clip(q1, cfg.min_q1, cfg.max_q1)
     clip_q2 = np.clip(q2, cfg.min_q2, cfg.max_q2)
     clip_q3 = np.clip(q3, cfg.min_q3, cfg.max_q3)
     return np.array([clip_q1, clip_q2, clip_q3])
 
 
-def get_interior_angle(a, b, c):
+def get_interior_angle(a: float, b: float, c: float) -> float:
     # 1. 코사인 분수값 계산
     cos_theta = (a**2 + b**2 - c**2) / (2 * a * b)
     
@@ -209,7 +230,10 @@ def get_interior_angle(a, b, c):
     return np.arccos(cos_theta)
 
 
-def get_r_feet_bf(Pfoot_bf, hip_location_bf=None):
+def get_r_feet_bf(
+    Pfoot_bf: Vec3x4,
+    hip_location_bf: Vec3x4 | None = None,
+) -> Vec3x4:
     """hip 기준 발 위치 -> CoM 기준 발 위치 (body frame).
 
     기존 시그니처는 body_length/body_width 를 받았으나 본문에서 쓰지 않고
@@ -229,7 +253,12 @@ def get_r_feet_bf(Pfoot_bf, hip_location_bf=None):
     return Pfoot_bf + hip_location_bf
 
 
-def compute_leg_jacobian(q, l_hip=cfg.link_hip, l_thigh=cfg.link_upper, l_calf=cfg.link_lower):
+def compute_leg_jacobian(
+    q: Vec3,
+    l_hip: float = cfg.link_hip,
+    l_thigh: float = cfg.link_upper,
+    l_calf: float = cfg.link_lower,
+) -> Mat3:
     """
     관절 각도 q = [q1, q2, q3]를 받아 3x3 자코비안 행렬을 반환합니다.
     """
