@@ -1,4 +1,4 @@
-.PHONY: check check-all accept types help
+.PHONY: check check-all accept types view help
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/ —/'
@@ -15,3 +15,6 @@ types:  ## 타입 검사 (검사기를 안 돌리는 타입은 주석이다)
 accept:  ## 변경을 의도한 것으로 받아들이고 기준선을 갱신한다
 	python sim_main/capture_baseline.py S0_standing S1_trot_fwd S3_yaw
 	pytest -v
+
+view:  ## MuJoCo 로 돌리고 뷰어로 재생 (macOS 는 mjpython 필요)
+	mjpython scripts/run_mujoco.py $(S) --view --loop

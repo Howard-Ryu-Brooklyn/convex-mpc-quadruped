@@ -239,6 +239,7 @@ def run_scenario_mujoco(
                 p_feet_des_wf=p_feet_des_wf,
                 r_feet_des_wf=r_feet_des_wf,
                 r_feet_wf=p_feet_measured - p_com,
+                qpos=plant.qpos,
             )
 
     h = log.arrays()
@@ -275,6 +276,7 @@ def run_scenario_mujoco(
         "max_yaw_step":   np.asarray(plant.max_yaw_step_rad),
         # ── 시각화용 ────────────────────────────────────────────────
         "R_W_B":          h["R"],
+        "qpos":           h["qpos"],        # 뷰어 재생용 (nq)
         "state_13":       h["x"],
         "state_ref_13":   h["xref"],
         "feet_rel_W":     h["r_feet_wf"],

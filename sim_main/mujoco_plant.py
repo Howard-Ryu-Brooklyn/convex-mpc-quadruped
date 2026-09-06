@@ -292,6 +292,17 @@ class MuJoCoPlant(PlantBase):
         return np.stack([d.xpos[i] for i in ids], axis=1).copy()
 
     @property
+    def qpos(self) -> np.ndarray:
+        """엔진의 일반화 좌표 전체 [nq] — 재생·시각화 전용, 제어에는 쓰지 않는다.
+
+        제어 경로는 observe() 가 주는 RobotState 만 본다. 이 값은 뷰어에
+        그대로 밀어넣기 위한 것이라 규약(프레임·부호)을 정리하지 않은
+        **엔진의 날것**이다. nq(19) != nv(18) 이다 — 자유 관절의 자세가
+        쿼터니언 4 개인데 각속도는 3 개이기 때문이다.
+        """
+        return np.asarray(self._data.qpos, dtype=float).copy()
+
+    @property
     def joint_angles(self) -> np.ndarray:
         """(3,4) 관절각 [q_abad, q_hip, q_knee] x 4. qpos[7:] 를 재배열한 것."""
         return np.asarray(self._data.qpos[7:], dtype=float).reshape(4, 3).T.copy()
