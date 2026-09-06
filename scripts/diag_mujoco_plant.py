@@ -92,16 +92,18 @@ def main() -> None:
     mj.mj_resetData(m, d)
     d.qpos[:] = HOME_QPOS
     plant._yaw.reset()
-    truth, got = [], []
+    truth_list: list[float] = []
+    got_list: list[float] = []
     for k in range(1081):                   # 0 ~ 1080 deg
         ang = np.deg2rad(k)
         q = np.zeros(4)
         mj.mju_axisAngle2Quat(q, np.array([0.0, 0.0, 1.0]), ang)
         d.qpos[3:7] = q
         mj.mj_forward(m, d)
-        truth.append(ang)
-        got.append(plant.observe().rpy_W[2])
-    truth, got = np.array(truth), np.array(got)
+        truth_list.append(ang)
+        got_list.append(float(plant.observe().rpy_W[2]))
+    truth = np.array(truth_list)
+    got = np.array(got_list)
     print(f"  0 -> 1080 deg 복원 오차 최대 {np.abs(got-truth).max():.2e} rad")
     print(f"  관측된 yaw 최종값 {np.rad2deg(got[-1]):.1f} deg  <- 1080 이어야 한다")
     print(f"  max_yaw_step {np.rad2deg(plant.max_yaw_step_rad):.2f} deg "
