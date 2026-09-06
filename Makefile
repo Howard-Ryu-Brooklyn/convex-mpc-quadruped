@@ -1,4 +1,4 @@
-.PHONY: check check-all accept types view help
+.PHONY: check check-all accept types list run view help
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/ —/'
@@ -16,5 +16,11 @@ accept:  ## 변경을 의도한 것으로 받아들이고 기준선을 갱신한
 	python sim_main/capture_baseline.py S0_standing S1_trot_fwd S3_yaw
 	pytest -v
 
-view:  ## MuJoCo 로 돌리고 뷰어로 재생 (macOS 는 mjpython 필요)
-	mjpython scripts/run_mujoco.py $(S) --view --loop
+list:  ## 시나리오와 보행 모드 목록
+	python scripts/run_sim.py --list
+
+run:  ## 돌리고 숫자만 (S=시나리오, P=srb|mujoco|both)
+	python scripts/run_sim.py $(or $(S),G_trot) --plant $(or $(P),both)
+
+view:  ## 돌리고 뷰어로 재생 (macOS 는 mjpython 필요). S=시나리오 X=배속
+	mjpython scripts/run_sim.py $(or $(S),G_trot) --view --loop --speed $(or $(X),1.0)

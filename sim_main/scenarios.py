@@ -31,9 +31,42 @@ class ScenarioSpec(TypedDict, total=False):
     clearance_height: float
 
 
-SCENARIOS: dict[str, ScenarioSpec] = {
+# ═══════════════════════════════════════════════════════════════════════
+# 두 개의 층. 섞으면 안 된다.
+# ═══════════════════════════════════════════════════════════════════════
+#
+# REGRESSION  골든 기준선이 물려 있다. 여기 숫자를 바꾸면 test_golden 이
+#             깨지고, `make accept` 로 기준선을 다시 떠야 한다. 즉 이 값을
+#             바꾸는 것은 '실험'이 아니라 '기준의 변경'이다.
+#
+# GALLERY     아무 테스트도 물려 있지 않다. 마음껏 바꿔도 되고, 바꾸라고
+#             있는 것이다. 속도·지속시간·클리어런스를 여기서 만진다.
+#
+# 층을 나누지 않으면 "그림 좀 보려고 duration 을 늘렸는데 테스트가 빨개졌다"
+# 가 반복되고, 결국 사람이 빨간불을 무시하기 시작한다.
+
+REGRESSION: dict[str, ScenarioSpec] = {
     "S0_standing":  ScenarioSpec(gait_name="standing", v_des_x=0.0, omega_z_deg_s=0.0,  duration_s=0.5),
     "S1_trot_fwd":  ScenarioSpec(gait_name="trotting", v_des_x=1.0, omega_z_deg_s=0.0,  duration_s=3.0),
     "S2_endurance": ScenarioSpec(gait_name="trotting", v_des_x=1.0, omega_z_deg_s=0.0,  duration_s=10.0),
     "S3_yaw":       ScenarioSpec(gait_name="trotting", v_des_x=0.0, omega_z_deg_s=20.0, duration_s=6.0),
 }
+
+#: 보행 모드별 관찰용. 속도는 각 게이트의 duty/주기에 맞춰 골랐다 —
+#: galloping 을 0.5 m/s 로 돌리는 것은 물리적으로 말이 안 된다(체공 구간이
+#: 있는데 전진하지 않으면 그냥 제자리 도약이다).
+#: 공격적인 게이트는 **넘어질 것으로 예상한다.** 그것이 이 실험의 내용이다 —
+#: 선형화된 MPC 가 어느 게이트까지 버티는가.
+GALLERY: dict[str, ScenarioSpec] = {
+    "G_stand":       ScenarioSpec(gait_name="standing",    v_des_x=0.0, omega_z_deg_s=0.0,  duration_s=2.0),
+    "G_trot":        ScenarioSpec(gait_name="trotting",    v_des_x=1.0, omega_z_deg_s=0.0,  duration_s=4.0),
+    "G_trot_slow":   ScenarioSpec(gait_name="trotting",    v_des_x=0.3, omega_z_deg_s=0.0,  duration_s=4.0),
+    "G_trot_yaw":    ScenarioSpec(gait_name="trotting",    v_des_x=0.5, omega_z_deg_s=30.0, duration_s=4.0),
+    "G_trot_side":   ScenarioSpec(gait_name="trotting",    v_des_x=0.0, v_des_y=0.4, omega_z_deg_s=0.0, duration_s=4.0),
+    "G_flying_trot": ScenarioSpec(gait_name="flying_trot", v_des_x=1.5, omega_z_deg_s=0.0,  duration_s=3.0, clearance_height=0.07),
+    "G_bound":       ScenarioSpec(gait_name="bounding",    v_des_x=1.5, omega_z_deg_s=0.0,  duration_s=3.0, clearance_height=0.08),
+    "G_gallop":      ScenarioSpec(gait_name="galloping",   v_des_x=2.0, omega_z_deg_s=0.0,  duration_s=3.0, clearance_height=0.08),
+}
+
+#: 이름으로 찾을 때의 단일 창구. 두 층을 합치되 출처는 위에 남아 있다.
+SCENARIOS: dict[str, ScenarioSpec] = {**REGRESSION, **GALLERY}
