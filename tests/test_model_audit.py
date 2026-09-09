@@ -11,9 +11,8 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from model_audit import (
-    Mismatch,
+from quadruped_mpc import config as cfg
+from quadruped_mpc.plants.model_audit import (
     ModelFacts,
     UnexpectedModelMismatch,
     audit,

@@ -9,7 +9,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from angles import TWO_PI, AngleUnwrapper, wrap_to_pi
+from quadruped_mpc.core.angles import TWO_PI, AngleUnwrapper, wrap_to_pi
 
 
 # ── wrap_to_pi ────────────────────────────────────────────────────────

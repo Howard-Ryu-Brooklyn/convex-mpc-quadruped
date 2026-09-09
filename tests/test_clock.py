@@ -6,7 +6,7 @@
 """
 import pytest
 
-from clock import MultiRateClock
+from quadruped_mpc.core.clock import MultiRateClock
 
 
 def test_default_rates_match_the_notebook():

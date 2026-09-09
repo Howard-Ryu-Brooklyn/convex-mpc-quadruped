@@ -7,15 +7,15 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from gait_planning import get_gait_parameters
-from planning import (
+from quadruped_mpc import config as cfg
+from quadruped_mpc.control.gait_planning import get_gait_parameters
+from quadruped_mpc.control.planning import (
     build_contact_schedule,
     build_horizon_plan,
     build_reference_trajectory,
     raibert_footholds,
 )
-from robot_types import HorizonPlan, Leg
+from quadruped_mpc.core.robot_types import HorizonPlan, Leg
 
 HORIZON = 10
 MPC_DT = 1.0 / 30

@@ -7,9 +7,9 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from convex_mpc import ConvexMPC
-from rotations import Rx, Ry, Rz, matrix_to_rpy, omega_to_rpy_rate, rpy_to_matrix
+from quadruped_mpc import config as cfg
+from quadruped_mpc.control.convex_mpc import ConvexMPC
+from quadruped_mpc.core.rotations import Rx, Ry, Rz, matrix_to_rpy, omega_to_rpy_rate, rpy_to_matrix
 
 ANGLES = [0.0, 0.2, np.pi / 6, np.pi / 4, np.pi / 3, np.pi / 2 - 0.05, 2.5, -1.1]
 

@@ -6,19 +6,15 @@ step() 을 쓰기 전에 **관측이 옳은지** 먼저 확인한다. 관측이 
 각 항목은 '통과/실패'가 아니라 **숫자**를 낸다. 물리량의 크기를 보고 사람이
 판단해야 하는 것들이기 때문이다.
 """
-import sys
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "sim_main"))
+from quadruped_mpc import config as cfg
+from quadruped_mpc.paths import DEFAULT_MODEL_XML
+from quadruped_mpc.plants.mujoco_plant import MuJoCoPlant
+from quadruped_mpc.core.rotations import rpy_to_matrix
 
-import config as cfg                      # noqa: E402
-from mujoco_plant import MuJoCoPlant       # noqa: E402
-from rotations import rpy_to_matrix        # noqa: E402
-
-XML = ROOT / "mujoco_test" / "mit_cheetah3" / "scene.xml"
+XML = DEFAULT_MODEL_XML
 HOME_QPOS = np.array([
     0.0, 0.0, 0.65,
     1.0, 0.0, 0.0, 0.0,
@@ -27,7 +23,6 @@ HOME_QPOS = np.array([
     0.0, 0.9, -1.8,
     0.0, 0.9, -1.8,
 ])
-
 
 def main() -> None:
     plant = MuJoCoPlant(XML, dt=1.0 / 9000, home_qpos=HOME_QPOS)
@@ -115,7 +110,7 @@ def main() -> None:
     print("\n" + "=" * 68)
     print("5. 기구학 일치 — 결함 11 이 MuJoCo 에서도 맞는가")
     print("=" * 68)
-    from kinematics import leg_forward_kinematics   # noqa: PLC0415
+    from quadruped_mpc.core.kinematics import leg_forward_kinematics   # noqa: PLC0415
     mj.mj_resetData(m, d)
     d.qpos[:] = HOME_QPOS
     mj.mj_forward(m, d)
@@ -130,7 +125,6 @@ def main() -> None:
         print(f"  {name}: FK(q) vs MuJoCo 발  오차 {np.linalg.norm(fk_W-feet_W[:,i])*1000:8.3f} mm"
               f"   q={np.round(np.rad2deg(q[:,i]),2)} deg")
     print("  (0 에 가까워야 우리 기구학과 MuJoCo 모델이 같은 로봇을 말하는 것이다)")
-
 
 if __name__ == "__main__":
     main()

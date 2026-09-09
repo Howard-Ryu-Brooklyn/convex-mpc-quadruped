@@ -7,11 +7,11 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from dynamics import SRBDynamics
-from kinematics import get_q, get_r_feet_bf
-from plant_base import PlantBase
-from robot_types import ControlCommand, RobotState
+from quadruped_mpc import config as cfg
+from quadruped_mpc.plants.srb import SRBDynamics
+from quadruped_mpc.core.kinematics import get_q, get_r_feet_bf
+from quadruped_mpc.plants.plant_base import PlantBase
+from quadruped_mpc.core.robot_types import ControlCommand, RobotState
 
 HEIGHT = cfg.leg_length_straight / 2      # 0.34 m
 

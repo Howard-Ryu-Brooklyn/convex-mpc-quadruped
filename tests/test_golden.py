@@ -1,4 +1,3 @@
-from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
@@ -6,7 +5,7 @@ import pytest
 
 # sim_main 의 import 경로 설정은 tests/conftest.py 가 담당한다.
 
-BASELINE_DIR = Path(__file__).resolve().parent.parent / "baselines"
+from quadruped_mpc.paths import BASELINE_DIR
 # 신호별 허용오차. 물리량마다 스케일과 수치 노이즈 바닥이 다르다.
 #   판정식: |a-b| <= atol + rtol*|b|
 TOLERANCES = {
@@ -52,7 +51,6 @@ def test_matches_baseline(name, scenario_results):
 # ── 물리 상수 ──
 TOL_N = 1.0   # OSQP 수렴 허용오차 흡수 [N]. 총 지지력 ~421N 대비 0.24%.
 
-
 def _assert_healthy(h, name, z_tol=0.05, rp_tol_deg=15.0):
     """물리적으로 살아있는 궤적인지 검사. 여러 시나리오에서 재사용."""
     assert h["completed"], f"[{name}] 수치 발산 @ {h['diverged_at_s']}s"
@@ -66,7 +64,6 @@ def _assert_healthy(h, name, z_tol=0.05, rp_tol_deg=15.0):
     assert np.all(rp < np.deg2rad(rp_tol_deg)), \
         f"[{name}] 자세 이탈: {np.rad2deg(rp.max()):.1f}deg"
 
-
 def test_s1_physical_invariants(scenario_results):
     """높이를 제외한 물리 불변량.
 
@@ -75,7 +72,7 @@ def test_s1_physical_invariants(scenario_results):
     독립적으로 판정되어야 하는 성질은 테스트를 나눈다.
     테스트의 입도가 곧 진단의 해상도다.
     """
-    import config as cfg
+    from quadruped_mpc import config as cfg
     h = scenario_results("S1_trot_fwd")
 
     assert h["completed"], f"[S1] 수치 발산 @ {h['diverged_at_s']}s"
@@ -94,13 +91,11 @@ def test_s1_physical_invariants(scenario_results):
     mg = abs(cfg.m * cfg.gz)
     assert abs(fz.sum(axis=1).mean() - mg) < 0.1 * mg, "[S1] 평균 수직항력이 중력과 불일치"
 
-
 def test_s1_height_regulation(scenario_results):
     """높이 유지. 결함 8(MPC 토크암) 회귀 감시."""
     h = scenario_results("S1_trot_fwd")
     z = h["com_pos"][:, 2]
     assert np.all(np.abs(z - 0.34) < 0.05), f"[S1] 높이 이탈: [{z.min():.3f}, {z.max():.3f}]"
-
 
 def test_s3_yaw_stays_bounded(scenario_results):
     """선회 시 자세 안정성. 결함 1(Ac 전치) + 결함 2(r_feet_traj)의 회귀 감시.
@@ -173,7 +168,6 @@ def test_event_solves_match_the_contact_transition_count(name, expected, scenari
     이벤트 구동이 죽은 것이다. 양쪽 다 여기서 걸린다.
     """
     assert int(scenario_results(name)["n_event_solves"]) == expected
-
 
 def test_event_solves_are_a_small_fraction_of_regular_solves(scenario_results):
     """비용이 감당 가능한 범위인지 - 접촉 채터링에 대한 상한.

@@ -2,7 +2,7 @@
 import numpy as np
 import numpy.testing as npt
 
-from history import HistoryLogger
+from quadruped_mpc.core.history import HistoryLogger
 
 
 def test_record_stores_a_copy_not_a_reference():

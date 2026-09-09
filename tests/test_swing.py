@@ -8,8 +8,8 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from bezier import bezier_with_derivatives
-from swing import SwingTrajectoryGenerator
+from quadruped_mpc.core.bezier import bezier_with_derivatives
+from quadruped_mpc.control.swing import SwingTrajectoryGenerator
 
 T_SWING = 0.25
 CLEARANCE = 0.05

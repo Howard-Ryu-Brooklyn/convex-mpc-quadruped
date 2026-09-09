@@ -2,15 +2,11 @@
 
 Step 1-6 에서 정식 패키지(src/quadruped_mpc/)로 옮기면 sys.path 조작은 사라진다.
 """
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim_main"))
-
-from scenario_runner import run_scenario  # noqa: E402
-from scenarios import SCENARIOS  # noqa: E402
+from quadruped_mpc.experiments.scenario_runner import run_scenario
+from quadruped_mpc.experiments.scenarios import SCENARIOS
 
 
 @pytest.fixture(scope="session")

@@ -1,25 +1,32 @@
-# Python 캐시
+# 파이썬
 __pycache__/
 *.pyc
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
 
 # 가상환경
 .venv/
 venv/
 env/
 
-# Mac 시스템 파일
+# 에디터 / OS
 .DS_Store
-
-# 시뮬레이션 로그 및 결과 데이터
-*.log
-results/
+.vscode/
 
 # 시뮬레이션 산출물 (전부 재생성 가능)
+*.log
 *.mp4
 *.npz
 *.png
-sim_main/video/
+results/
 
-# 단, 회귀 기준선은 커밋되어야 한다 (테스트가 이걸 읽는다)
-!baselines/*.npz_to_delete/
-.vscode/
+# 단, 아래 둘은 커밋되어야 한다.
+#   baselines/*.npz  회귀 테스트가 읽는 골든 궤적
+#   models/**        로봇 모델의 텍스처·렌더 이미지
+# (예전에 이 두 줄이 한 줄로 붙어 negation 이 통째로 무효였다.
+#  .gitignore 는 조용히 실패하는 파일이라, 고칠 때 이유를 남긴다.)
+!baselines/*.npz
+!models/**/*.png

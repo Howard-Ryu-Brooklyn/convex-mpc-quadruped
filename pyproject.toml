@@ -1,5 +1,50 @@
-# 현재는 pytest 설정만 담는다.
-# 패키지 메타데이터([project], [build-system])와 의존성 핀 고정은 Step 8에서 추가한다.
+# ─────────────────────────────────────────────────────────────────────
+# 패키지 메타데이터
+# ─────────────────────────────────────────────────────────────────────
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quadruped-mpc"
+version = "0.1.0"
+description = "Convex MPC quadruped locomotion: an ideal single-rigid-body plant and a MuJoCo plant behind one interface"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Howard Ryu" }]
+keywords = ["quadruped", "convex-mpc", "model-predictive-control", "mujoco", "legged-robotics"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+
+# 상한을 두는 이유: osqp 1.x 는 이미 warm_start -> warm_starting 개명을
+# 예고했고, numpy 2.x 는 ndarray.ptp 를 없앴다. 의존성이 조용히 올라가면
+# 골든 궤적이 바뀌고, 그 원인을 찾는 데 하루가 든다.
+dependencies = [
+    "numpy>=2.1,<3",
+    "scipy>=1.14,<2",
+    "osqp>=1.0,<2",
+    "matplotlib>=3.8,<4",
+]
+
+[project.optional-dependencies]
+mujoco = ["mujoco>=3.2,<4"]
+notebook = ["ipython>=8", "ipykernel>=6", "mediapy>=1.2"]
+dev = [
+    "pytest>=8",
+    "mypy>=1.11",
+    "nbstripout>=0.7",
+]
+
+[project.urls]
+Repository = "https://github.com/Howard-Ryu-Brooklyn/Convex-MPC"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -36,8 +81,10 @@ filterwarnings = [
 # 모듈부터 잠그고, 새로 정리하는 모듈을 아래 목록에 추가해 나간다.
 [tool.mypy]
 python_version = "3.13"
-mypy_path = "sim_main"
-files = ["sim_main", "tests", "scripts"]
+# src 레이아웃이라 경로를 알려준다. 편집 가능 설치의 .pth 리다이렉트를
+# 검사기가 항상 따라가는 것은 아니다.
+mypy_path = "src"
+files = ["src", "tests", "scripts"]
 
 # numpy 배열 별칭(Annotated NDArray)은 형상까지 검사하지 못한다.
 # 그래도 '이게 배열인가 float 인가 리스트인가'는 잡아 준다.
@@ -48,15 +95,29 @@ warn_unused_ignores = true
 no_implicit_optional = true
 
 # 아직 정리되지 않은 모듈. 정리하면 여기서 지운다.
+# (plot_data / presentation_plot 은 참조가 0 이라 저장소 정리 때 삭제했다.)
 [[tool.mypy.overrides]]
-module = ["visualization", "plot_data", "presentation_plot", "dynamics", "gait_planning"]
+module = [
+    "quadruped_mpc.viz.visualization",
+    "quadruped_mpc.plants.srb",
+    "quadruped_mpc.control.gait_planning",
+]
 ignore_errors = true
 
 # 정리 완료 — 여기 있는 모듈은 타입 없는 정의를 허용하지 않는다.
 [[tool.mypy.overrides]]
 module = [
-    "angles", "bezier", "clock", "convex_mpc", "model_audit",
-    "planning", "plant_base", "robot_types", "rotations", "swing",
+    "quadruped_mpc.core.angles",
+    "quadruped_mpc.core.bezier",
+    "quadruped_mpc.core.clock",
+    "quadruped_mpc.core.robot_types",
+    "quadruped_mpc.core.rotations",
+    "quadruped_mpc.control.convex_mpc",
+    "quadruped_mpc.control.planning",
+    "quadruped_mpc.control.swing",
+    "quadruped_mpc.plants.model_audit",
+    "quadruped_mpc.plants.plant_base",
+    "quadruped_mpc.paths",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

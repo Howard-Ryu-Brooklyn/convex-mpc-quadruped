@@ -26,19 +26,15 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "sim_main"))
-
-from gait_planning import GAIT_PARAMS                              # noqa: E402
-from mujoco_runner import DEFAULT_XML, HOME_QPOS                   # noqa: E402
-from mujoco_runner import run_scenario_mujoco                      # noqa: E402
-from scenario_runner import run_scenario                           # noqa: E402
-from scenarios import GALLERY, REGRESSION, SCENARIOS, ScenarioSpec  # noqa: E402
+from quadruped_mpc.control.gait_planning import GAIT_PARAMS
+from quadruped_mpc.experiments.mujoco_runner import DEFAULT_XML, HOME_QPOS
+from quadruped_mpc.experiments.mujoco_runner import run_scenario_mujoco
+from quadruped_mpc.experiments.scenario_runner import run_scenario
+from quadruped_mpc.experiments.scenarios import GALLERY, REGRESSION, SCENARIOS, ScenarioSpec
 
 
 # ── CLI ───────────────────────────────────────────────────────────────
@@ -69,7 +65,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--quiet", action="store_true")
     return ap.parse_args()
 
-
 def build_spec(args: argparse.Namespace) -> ScenarioSpec:
     """이름으로 고르고, 플래그로 덮어쓴다.
 
@@ -93,7 +88,6 @@ def build_spec(args: argparse.Namespace) -> ScenarioSpec:
     if args.clearance is not None:
         spec["clearance_height"] = args.clearance
     return spec
-
 
 def print_catalog() -> None:
     print("\n  [ 보행 모드 ]  gait_planning.GAIT_PARAMS")
@@ -139,7 +133,6 @@ def metrics(res: dict[str, Any]) -> dict[str, str]:
         m["yaw 스텝 °"]       = f"{np.rad2deg(float(res['max_yaw_step'])):.2f}"
     return m
 
-
 def report(title: str, results: dict[str, dict[str, Any]]) -> None:
     cols = list(results)
     keys: list[str] = []
@@ -182,7 +175,6 @@ def srb_qpos(res: dict[str, Any]) -> np.ndarray:
         qpos[k, 3:7] = quat
         qpos[k, 7:19] = q[k].T.reshape(12)     # (3,4) -> [leg][joint]
     return qpos
-
 
 def replay(qpos: np.ndarray, frame_dt: float, speed: float, loop: bool,
            label: str) -> None:
@@ -257,7 +249,6 @@ def main() -> None:
             else srb_qpos(results["SRB"]))
     replay(qpos, 1.0 / args.log_hz, args.speed, args.loop,
            which + ("  (근사 재구성)" if which == "srb" else ""))
-
 
 if __name__ == "__main__":
     main()

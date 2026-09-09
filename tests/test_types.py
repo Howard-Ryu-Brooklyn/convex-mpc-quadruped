@@ -9,8 +9,8 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from robot_types import ControlOutput, FootState, Leg, RobotState, SolverStatus
+from quadruped_mpc import config as cfg
+from quadruped_mpc.core.robot_types import ControlOutput, FootState, Leg, RobotState, SolverStatus
 
 
 # ── RobotState ──────────────────────────────────────────────────────────

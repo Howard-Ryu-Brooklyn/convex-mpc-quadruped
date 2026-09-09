@@ -1,0 +1,17 @@
+This repository's own source code is licensed under the MIT License (see LICENSE).
+
+It also redistributes third-party assets under their own terms:
+
+  models/mit_cheetah3/assets/*.obj, *.png
+  models/mit_cheetah3/LICENSE
+      Visual meshes and textures from the Unitree A1 robot description,
+      via google-deepmind/mujoco_menagerie.
+      Copyright (c) 2016-2022 HangZhou YuShu TECHNOLOGY CO.,LTD.
+      ("Unitree Robotics"). BSD 3-Clause License.
+
+  models/mit_cheetah3/mit_cheetah3.xml
+      Written for this project. The rigid-body parameters (43 kg trunk,
+      diag(0.41, 2.1, 2.1) kg*m^2) follow the MIT Cheetah 3 values used in
+      Di Carlo et al., "Dynamic Locomotion in the MIT Cheetah 3 Through
+      Convex Model-Predictive Control" (IROS 2018). Only the visual meshes
+      are borrowed from the Unitree A1 description above.

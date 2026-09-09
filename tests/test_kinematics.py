@@ -12,8 +12,8 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-import config as cfg
-from kinematics import (
+from quadruped_mpc import config as cfg
+from quadruped_mpc.core.kinematics import (
     clip_q,
     compute_leg_ik,
     leg_forward_kinematics,

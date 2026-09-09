@@ -3,29 +3,23 @@
 tau = J^T (-f) 의 부호는 논증으로 정하지 않는다. 논증은 틀려도 그럴듯하고,
 측정은 틀리면 숫자가 다르다.
 """
-import sys
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "sim_main"))
+from quadruped_mpc import config as cfg
+from quadruped_mpc.paths import DEFAULT_MODEL_XML
+from quadruped_mpc.plants.mujoco_plant import MuJoCoPlant
+from quadruped_mpc.core.robot_types import ControlCommand
+from quadruped_mpc.control.swing import SwingTrajectoryGenerator
 
-import config as cfg                       # noqa: E402
-from mujoco_plant import MuJoCoPlant        # noqa: E402
-from robot_types import ControlCommand      # noqa: E402
-from swing import SwingTrajectoryGenerator  # noqa: E402
-
-XML = ROOT / "mujoco_test" / "mit_cheetah3" / "scene.xml"
+XML = DEFAULT_MODEL_XML
 HOME_QPOS = np.array([0.0, 0.0, 0.65, 1.0, 0.0, 0.0, 0.0,
                       0.0, 0.9, -1.8, 0.0, 0.9, -1.8,
                       0.0, 0.9, -1.8, 0.0, 0.9, -1.8])
 DT = 1.0 / 9000
 
-
 def make_plant():
     return MuJoCoPlant(XML, dt=DT, home_qpos=HOME_QPOS, verbose=False)
-
 
 def stance_command(plant, fz_each):
     s = plant.observe()
@@ -35,7 +29,6 @@ def stance_command(plant, fz_each):
     return ControlCommand(forces_W=f, r_feet_W=r,
                           is_stance=np.ones(4, dtype=bool),
                           v_feet_W=np.zeros((3, 4)), a_feet_W=np.zeros((3, 4)))
-
 
 def main() -> None:
     print("=" * 70)
@@ -146,7 +139,6 @@ def main() -> None:
         print("   ❌ 통과했다 - None 을 조용히 0 으로 대체하고 있다")
     except ValueError as e:
         print(f"   ✅ 거부: {str(e)[:60]}...")
-
 
 if __name__ == "__main__":
     main()

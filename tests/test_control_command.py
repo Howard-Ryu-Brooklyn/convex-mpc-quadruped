@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-from robot_types import ControlCommand
+from quadruped_mpc.core.robot_types import ControlCommand
 
 ALL_STANCE = np.ones(4, dtype=bool)
 TROT_A = np.array([True, False, False, True])   # FR, RL 접지

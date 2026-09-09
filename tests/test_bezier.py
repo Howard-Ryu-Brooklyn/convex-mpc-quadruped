@@ -12,7 +12,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from bezier import bezier, bezier_with_derivatives
+from quadruped_mpc.core.bezier import bezier, bezier_with_derivatives
 
 # 실제 스윙 궤적과 같은 모양의 3차 베지에
 P0 = np.array([0.30, -0.13, 0.00])

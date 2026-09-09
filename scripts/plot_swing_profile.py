@@ -6,15 +6,11 @@ compute_bezier_with_kinematics 가 sim_main/bezier.py 로 옮겨가면서
 
 실행: python scripts/plot_swing_profile.py
 """
-import sys
-from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim_main"))
-from bezier import bezier_with_derivatives  # noqa: E402
-
+from quadruped_mpc.core.bezier import bezier_with_derivatives
 
 def main():
     # 1. 가상의 4족 보행 발 스윙 제어점(Control Points) 설정 (3차 베지에 예시)

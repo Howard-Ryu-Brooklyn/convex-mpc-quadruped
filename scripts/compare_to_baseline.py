@@ -9,17 +9,13 @@ check_s1_delta.py 는 '얼마나 바뀌었나'를 답한다. 이 스크립트는
 실행: python scripts/compare_to_baseline.py [시나리오키 ...]
 """
 import sys
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "sim_main"))
-
-import config as cfg  # noqa: E402
-from scenario_runner import run_scenario  # noqa: E402
-from scenarios import SCENARIOS  # noqa: E402
-
+from quadruped_mpc import config as cfg
+from quadruped_mpc.experiments.scenario_runner import run_scenario
+from quadruped_mpc.experiments.scenarios import SCENARIOS
+from quadruped_mpc.paths import BASELINE_DIR
 
 def metrics(h, nominal_height, target_distance_m=0.0):
     z = h["com_pos"][:, 2]
@@ -78,7 +74,6 @@ NOISE_FLOOR = {
 #: 비교 도구가 무엇을 평가하지 않고 있는지 아는 것도 도구의 일부다.
 TARGET_VALUE = {"평균 수직력 / mg": 1.0}
 
-
 def _noise_floor(metric_name: str) -> float:
     """지표 이름의 단위 표기로 잡음 바닥을 고른다. 모르면 0 (항상 비교)."""
     for unit, floor in NOISE_FLOOR.items():
@@ -86,9 +81,8 @@ def _noise_floor(metric_name: str) -> float:
             return floor
     return 0.0
 
-
 def compare(name):
-    path = ROOT / "baselines" / f"{name}.npz"
+    path = BASELINE_DIR / f"{name}.npz"
     if not path.exists():
         print(f"[{name}] 기준선 없음: {path}")
         return
@@ -131,7 +125,6 @@ def compare(name):
             else:
                 mark = "  ✅ 개선" if ratio < 1 else "  ⚠️ 악화"
         print(f"{k:<28}{a:>14.6f}{b:>14.6f}{mark:>12}")
-
 
 if __name__ == "__main__":
     for name in (sys.argv[1:] or ["S0_standing", "S1_trot_fwd", "S3_yaw"]):
