@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Howard-Ryu-Brooklyn/Convex-MPC"
+Repository = "https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO"
 
 [tool.setuptools.packages.find]
 where = ["src"]

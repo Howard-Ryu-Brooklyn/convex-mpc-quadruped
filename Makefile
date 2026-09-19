@@ -1,4 +1,4 @@
-.PHONY: help install check check-all types accept list run view clean
+.PHONY: help install check check-all types accept list run view gif clean
 
 help:  ## 이 목록
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/ —/'
@@ -28,6 +28,24 @@ run:  ## 돌리고 숫자만 (S=시나리오 P=srb|mujoco|both)
 
 view:  ## 돌리고 뷰어로 재생 (macOS 는 mjpython 필요). S=시나리오 X=배속
 	mjpython scripts/run_sim.py $(or $(S),G_trot) --view --loop --speed $(or $(X),1.0)
+
+gif:  ## 화면 녹화를 README용 GIF 로. IN=녹화파일 [OUT=] [FPS=20] [W=720]
+	@test -n "$(IN)" || (echo "사용법: make gif IN=~/Desktop/화면\\ 기록.mov"; exit 1)
+	@mkdir -p $(dir $(GIF_OUT))
+	@# 2-패스 팔레트 방식. 한 번에 뽑으면 256색을 프레임마다 다시 고르느라
+	@# 잔디와 그림자에 밴딩이 생긴다.
+	ffmpeg -loglevel error -i "$(IN)" \
+	  -vf "fps=$(GIF_FPS),scale=$(GIF_W):-1:flags=lanczos,palettegen=stats_mode=diff" \
+	  -y /tmp/quadruped-palette.png
+	ffmpeg -loglevel error -i "$(IN)" -i /tmp/quadruped-palette.png \
+	  -lavfi "fps=$(GIF_FPS),scale=$(GIF_W):-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3" \
+	  -y "$(GIF_OUT)"
+	@ls -lh "$(GIF_OUT)"
+	@echo "5 MB 를 넘으면 W 를 줄이거나(W=560) 녹화를 짧게 하라."
+
+GIF_OUT ?= docs/media/trot.gif
+GIF_FPS ?= 20
+GIF_W   ?= 720
 
 clean:  ## 캐시와 빌드 산출물 제거
 	rm -rf .pytest_cache .mypy_cache build dist src/*.egg-info

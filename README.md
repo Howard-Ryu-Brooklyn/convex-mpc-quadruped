@@ -1,6 +1,6 @@
 # Convex MPC for Quadruped Locomotion
 
-[![CI](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC/actions/workflows/ci.yml/badge.svg)](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC/actions/workflows/ci.yml)
+[![CI](https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO/actions/workflows/ci.yml/badge.svg)](https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 
@@ -19,10 +19,14 @@ Through Convex Model-Predictive Control* (IROS 2018): a 13-state single-rigid-bo
 model linearized about ZYX Euler angles, a QP over a 10-step horizon solved with OSQP,
 Raibert footstep planning, and Bézier swing trajectories.
 
+<!-- GIF 를 docs/media/trot.gif 에 넣은 뒤 아래 두 줄의 주석을 벗기면 된다.
+<p align="center"><img src="docs/media/trot.gif" width="720" alt="Trotting at 1 m/s in MuJoCo"></p>
+-->
+
 ## Quickstart (about 60 seconds)
 
 ```bash
-git clone https://github.com/Howard-Ryu-Brooklyn/Convex-MPC.git
+git clone https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO.git
 cd Convex-MPC
 python -m venv .venv && source .venv/bin/activate    # Python 3.11+
 make install                                          # pip install -e ".[mujoco,notebook,dev]"

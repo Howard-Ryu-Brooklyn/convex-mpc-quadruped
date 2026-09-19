@@ -23,10 +23,12 @@ env/
 *.png
 results/
 
-# 단, 아래 둘은 커밋되어야 한다.
+# 단, 아래 셋은 커밋되어야 한다.
 #   baselines/*.npz  회귀 테스트가 읽는 골든 궤적
 #   models/**        로봇 모델의 텍스처·렌더 이미지
+#   docs/media/**    README 에 걸리는 그림 (산출물이지만 문서의 일부다)
 # (예전에 이 두 줄이 한 줄로 붙어 negation 이 통째로 무효였다.
 #  .gitignore 는 조용히 실패하는 파일이라, 고칠 때 이유를 남긴다.)
 !baselines/*.npz
 !models/**/*.png
+!docs/media/**
