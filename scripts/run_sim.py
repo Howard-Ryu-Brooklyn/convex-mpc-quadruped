@@ -61,6 +61,10 @@ def parse_args() -> argparse.Namespace:
                    help="뷰어로 재생. both 일 때 기본은 mujoco")
     v.add_argument("--speed", type=float, default=1.0, help="재생 배속")
     v.add_argument("--loop", action="store_true", help="반복 재생")
+    v.add_argument("--free-cam", action="store_true",
+                   help="카메라가 몸통을 따라가지 않게 한다 (MuJoCo 기본 동작)")
+    v.add_argument("--cam-dist", type=float, default=3.0,
+                   help="추적 카메라 거리 [m] (기본 3.0)")
     v.add_argument("--log-hz", type=int, default=100,
                    help="로깅 주기 = 재생 프레임률 (기본 100)")
     ap.add_argument("--quiet", action="store_true")
@@ -198,7 +202,7 @@ def srb_qpos(res: dict[str, Any]) -> np.ndarray:
     return qpos
 
 def replay(qpos: np.ndarray, frame_dt: float, speed: float, loop: bool,
-           label: str) -> None:
+           label: str, track: bool = True, cam_dist: float = 3.0) -> None:
     import mujoco
     import mujoco.viewer
 
@@ -218,6 +222,20 @@ def replay(qpos: np.ndarray, frame_dt: float, speed: float, loop: bool,
     print(f"  재생 [{label}]  {len(qpos)} 프레임 @ {1 / frame_dt:.0f} Hz"
           f" × {speed:g} 배속{' (반복)' if loop else ''}.  창을 닫으면 끝난다.")
     with handle as viewer:
+        # 기본은 몸통 추적이다. 자유 카메라(MuJoCo 기본값)로 두면 로봇이
+        # 1 m/s 로 걸어가면서 몇 초 만에 화면 밖으로 나간다 - 걷는 로봇을
+        # 보려고 띄운 창에서 로봇이 사라지는 것은 기본값으로 둘 일이 아니다.
+        # 궤도를 직접 돌려 보고 싶으면 --free-cam.
+        if track:
+            trunk = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "trunk")
+            if trunk < 0:
+                print("  (경고: 'trunk' 바디를 찾지 못해 자유 카메라로 둔다)")
+            else:
+                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+                viewer.cam.trackbodyid = trunk
+                viewer.cam.distance = cam_dist
+                viewer.cam.azimuth = 130.0
+                viewer.cam.elevation = -15.0
         while viewer.is_running():
             t0 = time.time()
             for k in range(len(qpos)):
@@ -269,7 +287,8 @@ def main() -> None:
     qpos = (results["MuJoCo"]["qpos"] if which == "mujoco"
             else srb_qpos(results["SRB"]))
     replay(qpos, 1.0 / args.log_hz, args.speed, args.loop,
-           which + ("  (근사 재구성)" if which == "srb" else ""))
+           which + ("  (근사 재구성)" if which == "srb" else ""),
+           track=not args.free_cam, cam_dist=args.cam_dist)
 
 if __name__ == "__main__":
     main()

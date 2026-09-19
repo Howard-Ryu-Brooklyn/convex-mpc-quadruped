@@ -131,3 +131,22 @@ grep -rn matplotlib src/quadruped_mpc/{core,control,plants,experiments}
 - 결함을 고쳤으면 **어떻게 찾았는지**를 남긴다. 다음 사람이 같은 방법을 쓴다.
 - 규칙을 우회했으면(필터를 껐거나, 검사를 건너뛰었거나) **우회했다는 사실 자체를**
   커밋 메시지에 남긴다. 우회는 우회한 자리에 흔적을 남기지 않는다.
+
+## README 의 그림 만들기
+
+```bash
+which ffmpeg || brew install ffmpeg
+make view S=G_trot                      # 카메라가 몸통을 따라간다
+# Tab / Shift+Tab 으로 UI 패널을 접는다 (F1 이 단축키 목록)
+# Cmd+Shift+5 -> 선택 부분 기록 -> 4~6 초 -> 정지
+make gif IN=~/Desktop/화면\ 기록\ ....mov
+```
+
+- 재생 카메라는 **기본이 몸통 추적**이다. 자유 카메라(`--free-cam`)로 두면
+  1 m/s 로 걷는 로봇이 몇 초 만에 화면 밖으로 나간다. 거리는 `--cam-dist`.
+- 4~6 초면 trot 주기(0.5 s) 기준 8~12 보다. 걸음이 반복된다는 것이 보이면
+  충분하고, 그 이상은 파일만 커진다.
+- macOS 의 '선택 부분 기록' 은 **선택 영역 표시선을 프레임에 남길 때가 있다.**
+  `CROP=w:h:x:y` 로 가장자리를 몇 px 잘라낸다.
+- 5 MB 를 넘으면 `W=560` 이나 `FPS=15` 로 줄인다. GitHub 는 더 큰 것도
+  띄우지만, README 첫 화면에서 수 MB 를 내려받게 하는 것은 예의가 아니다.
