@@ -92,6 +92,15 @@ core  ◀──  control  ◀──  plants  ◀──  experiments  ◀──  
 
 `core` 는 `control` 을 모르고, `control` 은 `plants` 를 모른다. 러너만이 조립한다.
 
+이 방향은 **실제로 깨져 있었다.** `control/gait_planning.py` 안에 matplotlib 을
+import 하는 시각화 함수와 `__main__` 데모가 함께 있었다. 그러면 제어기를 import
+하는 것만으로 플로팅 라이브러리가 딸려 온다. 그림은 `viz/gait_plot.py` 로 옮겼고,
+지금은 `core`/`control`/`plants`/`experiments` 어디에도 matplotlib 이 없다.
+
+> 의존 방향은 문서에 쓰는 것이 아니라 **확인하는 것**이다.
+> `grep -rn matplotlib src/quadruped_mpc/{core,control,plants,experiments}` 가
+> 비어 있는지가 이 절의 진위를 정한다.
+
 ## 자기 위치를 아는 곳은 하나뿐
 
 `paths.py` 만이 저장소 루트를 계산한다. 예전에는 스크립트마다

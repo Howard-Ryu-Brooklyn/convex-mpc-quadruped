@@ -100,7 +100,6 @@ no_implicit_optional = true
 module = [
     "quadruped_mpc.viz.visualization",
     "quadruped_mpc.plants.srb",
-    "quadruped_mpc.control.gait_planning",
 ]
 ignore_errors = true
 
@@ -113,11 +112,13 @@ module = [
     "quadruped_mpc.core.robot_types",
     "quadruped_mpc.core.rotations",
     "quadruped_mpc.control.convex_mpc",
+    "quadruped_mpc.control.gait_planning",
     "quadruped_mpc.control.planning",
     "quadruped_mpc.control.swing",
     "quadruped_mpc.plants.model_audit",
     "quadruped_mpc.plants.plant_base",
     "quadruped_mpc.paths",
+    "quadruped_mpc.viz.gait_plot",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

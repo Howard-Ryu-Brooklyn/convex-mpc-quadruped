@@ -82,6 +82,14 @@ core  ◀──  control  ◀──  plants  ◀──  experiments  ◀──  
 조립한다. 이 방향을 거스르는 import 를 넣기 전에, 정말 그 자리에 있어야 하는
 코드인지 다시 본다.
 
+가장 자주 깨지는 형태는 **그림이 알고리즘 모듈에 끼어드는 것**이다. 실제로
+`control/gait_planning.py` 안에 matplotlib 을 쓰는 함수가 있었다. 아래가 비어
+있는지 확인하면 된다.
+
+```bash
+grep -rn matplotlib src/quadruped_mpc/{core,control,plants,experiments}
+```
+
 ## 커밋
 
 - 무엇을 바꿨는지가 아니라 **왜 바꿨는지**를 쓴다. diff 가 전자를 이미 말한다.

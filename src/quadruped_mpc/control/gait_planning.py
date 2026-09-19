@@ -1,13 +1,38 @@
-import matplotlib.pyplot as plt
-import numpy as np
+"""보행 스케줄 — 어느 다리가 언제 땅에 있는가.
+
+이 모듈은 **그림을 그리지 않는다.** 예전에는 여기 matplotlib 을 import 하는
+시각화 함수와 __main__ 데모가 함께 있었다. 그러면 제어기를 import 하는 것만으로
+플로팅 라이브러리가 딸려 오고, "control 은 viz 를 모른다"는 의존 방향이 깨진다.
+그림은 quadruped_mpc.viz.gait_plot 으로 옮겼다.
+"""
+from __future__ import annotations
+
+from typing import TypedDict
 
 # --- 1. 상수 정의 ---
 AIR = 1
 GROUND = 0
 FR, FL, RR, RL = 0, 1, 2, 3
 
+class GaitSpec(TypedDict):
+    """보행 모드 하나의 정의.
+
+    평범한 dict 로 두면 값 타입이 섞여 dict[str, object] 로 추론되고,
+    소비자 쪽에서 phase_offset 을 순회하는 순간 "object 는 iterable 이 아니다"
+    로 막힌다. 실제로 scripts/run_sim.py 가 그렇게 막혔다.
+
+    타입이 없는 경계는 그 경계를 쓰는 **모든 곳**에 비용을 전가한다.
+    호출부마다 cast 를 붙이는 대신 정의 한 곳에 타입을 준다.
+    """
+
+    duty_cycle: float       #: 한 주기 중 발이 땅에 있는 비율 (1.0 = 항상 지지)
+    phase_offset: list[float]   #: 다리별 위상 오프셋, [FR, FL, RR, RL]
+    cycle_time: float       #: 보행 1 주기 [s]
+    description: str
+
+
 # --- 2. 보행 모드 파라미터 딕셔너리 ---
-GAIT_PARAMS = {
+GAIT_PARAMS: dict[str, GaitSpec] = {
     "standing": {
         "duty_cycle": 1.0, # 보행 주기 내에 지면에 발이 닫는 비율
         "phase_offset": [0.0, 0.0, 0.0, 0.0], # 각 다리별 보행 사이클 오프셋
@@ -41,101 +66,45 @@ GAIT_PARAMS = {
 }
 
 # --- 3. 제어 함수 ---
-def get_gait_parameters(gait_name):
-    """
-    보행 모드 이름을 입력받아 duty_cycle과 phase_offset 배열을 반환합니다.
+def get_gait_parameters(gait_name: str) -> tuple[float, float, list[float]]:
+    """보행 모드 이름으로 (주기, duty, 위상 오프셋) 을 돌려준다.
+
+    반환 순서가 정의 순서(duty, offset, cycle)와 다르다. 호출부가 전부
+    `cycle_time, duty, offset = ...` 로 풀고 있어 지금 바꾸면 조용히
+    뒤바뀔 수 있다. 세 값의 타입이 float, float, list 로 서로 달라
+    검사기가 잡아주기는 하지만, 앞의 둘은 구별하지 못한다.
+
+    Raises:
+        ValueError: 등록되지 않은 보행 모드 이름.
     """
     if gait_name not in GAIT_PARAMS:
-        raise ValueError(f"지원하지 않는 보행 모드입니다: {gait_name}. 사용 가능한 모드: {list(GAIT_PARAMS.keys())}")
-    
+        raise ValueError(f"지원하지 않는 보행 모드입니다: {gait_name}. "
+                         f"사용 가능한 모드: {list(GAIT_PARAMS)}")
+
     params = GAIT_PARAMS[gait_name]
     return params["cycle_time"], params["duty_cycle"], params["phase_offset"]
 
-def get_contact_state(global_phase, duty_cycle, phase_offsets):
-    """
-    현재 전체 위상(global_phase, 0.0~1.0)과 보행 파라미터를 받아
-    네 다리의 접촉 상태 [FR, FL, RR, RL] 를 반환합니다.
+
+def get_contact_state(global_phase: float, duty_cycle: float,
+                      phase_offsets: list[float]) -> list[int]:
+    """현재 위상에서 네 다리의 접촉 상태 [FR, FL, RR, RL] 를 돌려준다.
+
+    Args:
+        global_phase: 보행 주기 내 진행률 0.0~1.0.
+        duty_cycle: 지지 비율. 1.0 이면 항상 지지(standing).
+        phase_offsets: 다리별 위상 오프셋.
+
+    Returns:
+        길이 4 의 리스트. 값은 GROUND(0) 또는 AIR(1).
+        **이 규약은 옛것이다** — 0 이 접촉이라 `== 0` 으로 마스크를 만들어야
+        한다. 러너는 `is_stance = np.asarray(sa) == 0` 으로 뒤집어 쓴다.
     """
     sa = [GROUND, GROUND, GROUND, GROUND]
-    
+
     for leg in range(4):
-        # 각 다리의 위상(offset 반영)을 0.0 ~ 1.0 사이로 정규화하여 계산
+        # 각 다리의 위상(offset 반영)을 0.0 ~ 1.0 으로 정규화
         leg_phase = (global_phase + phase_offsets[leg]) % 1.0
-        
-        # 계산된 다리 위상이 duty_cycle 이내면 지지(GROUND), 넘어가면 체공(AIR)
-        if leg_phase < duty_cycle:
-            sa[leg] = GROUND
-        else:
-            sa[leg] = AIR
-            
+        # duty_cycle 이내면 지지(GROUND), 넘어가면 체공(AIR)
+        sa[leg] = GROUND if leg_phase < duty_cycle else AIR
+
     return sa
-
-
-# --- 2. 시각화 함수 ---
-def plot_gait_pattern(history_Sa, dt=1.0):
-    """
-    시간에 따른 다리 접촉 상태(history_Sa)를 입력받아 Gait Pattern을 그립니다.
-    - history_Sa: [[FR, FL, RR, RL], [FR, FL, RR, RL], ...] 형태의 리스트
-    - dt: 한 스텝당 시간 (기본값 1.0을 쓰면 x축이 스텝 인덱스로 표시됨)
-    """
-    sa_array = np.array(history_Sa)
-    time = np.arange(len(sa_array)) * dt
-    
-    leg_names = ['FR', 'FL', 'RR', 'RL']
-    
-    fig, ax = plt.subplots(figsize=(10, 4))
-    
-    # 각 다리(0~3)에 대해 가시화
-    for leg_idx in range(4):
-        # 상태가 GROUND(0)일 때 True가 되도록 마스킹 (지면에 닿아있을 때만 색칠하기 위함)
-        is_stance = (sa_array[:, leg_idx] == GROUND)
-        
-        # 막대 그래프처럼 보이도록 y축 중심(leg_idx) 위아래로 0.3만큼 색을 채움
-        ax.fill_between(time, 
-                        y1 = leg_idx - 0.3, 
-                        y2 = leg_idx + 0.3, 
-                        where = is_stance, 
-                        color = f'C{leg_idx}', 
-                        alpha = 0.8,
-                        label = leg_names[leg_idx] if np.any(is_stance) else "")
-        
-    ax.set_yticks(range(4))
-    ax.set_yticklabels(leg_names)
-    ax.invert_yaxis()  # 직관적으로 FR이 맨 위에 오도록 y축 반전
-    
-    ax.set_xlabel('Time (s)' if dt != 1.0 else 'Simulation Step')
-    ax.set_ylabel('Leg')
-    ax.set_title('Quadruped Gait Contact Pattern (Colored Block = Stance Phase)')
-    ax.grid(True, axis='x', linestyle='--', alpha=0.7)
-    
-    # 레이아웃 정돈 및 출력
-    plt.tight_layout()
-    plt.show()
-
-
-if __name__ == "__main__":
-
-    gait_mode = ["standing", "trotting", "flying_trot", "bounding","galloping"]
-
-    cycle_time, duty, phase_offset = get_gait_parameters(gait_mode[0])
-
-    sim_freq = 100
-    sim_dt = 1/sim_freq
-    sim_tf = 1
-    sim_cnt = sim_freq * sim_tf
-
-    gait_freq = 1/cycle_time
-    gait_dt = cycle_time
-    
-    history_Sa = []
-
-    for i in range(sim_cnt):
-    # 3. 현재 Phase에서의 접촉 상태 계산
-        sim_time = i*sim_dt
-        current_phase = (sim_time % cycle_time) / cycle_time
-        Sa_current = get_contact_state(current_phase, duty, phase_offset)
-
-
-        history_Sa.append(Sa_current)
-
-    plot_gait_pattern(history_Sa, dt=sim_dt)
