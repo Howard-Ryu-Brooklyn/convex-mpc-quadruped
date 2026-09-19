@@ -1,5 +1,9 @@
 # Convex MPC for Quadruped Locomotion
 
+[![CI](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC/actions/workflows/ci.yml/badge.svg)](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+
 An ideal single-rigid-body plant and a MuJoCo plant, behind **one plant interface**,
 driven by **one controller**. Swapping the plant is a one-line change — which is the
 whole point: the two simulators answer different questions, and running the same

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[mujoco,dev]"
+
+      # Golden trajectory tests are deliberately excluded from CI.
+      #
+      # They compare 3-second trajectories element-wise against baselines
+      # captured on one machine. Bit-exactness there depends on the BLAS
+      # implementation numpy links against and on how OSQP was built — both
+      # differ between a macOS/arm64 wheel and a Linux/x86-64 one. Running
+      # them here would produce a red light that says "different CPU", not
+      # "broken physics", and a check that fails for reasons nobody acts on
+      # is worse than no check: people start ignoring it.
+      #
+      # So CI guards what is platform-independent, and golden regression
+      # stays a local gate (`make check-all` before a PR). See CONTRIBUTING.md.
+      - name: Physics and contract tests
+        run: pytest -m "not golden" -q
+
+      - name: Types
+        run: mypy

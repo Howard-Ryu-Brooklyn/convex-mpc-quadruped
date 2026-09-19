@@ -29,6 +29,13 @@ git config diff.ipynb.textconv    'python -m nbstripout -t'
 | `make check-all` | PR 을 올리기 전. 골든 회귀까지 |
 | `make accept` | **물리를 의도적으로 바꿨을 때만.** 기준선을 다시 뜬다 |
 
+CI(`.github/workflows/ci.yml`)는 `pytest -m "not golden"` 과 `mypy` 만 돌린다.
+골든은 일부러 뺐다 — 궤적을 요소별로 비교하므로 비트 정확도가 numpy 가 링크한
+BLAS 구현과 OSQP 빌드 방식에 달려 있고, 그것은 macOS/arm64 휠과 Linux/x86-64
+휠에서 다르다. CI 에서 돌리면 "물리가 깨졌다"가 아니라 "CPU 가 다르다"는
+빨간불이 뜬다. **아무도 조치하지 않는 빨간불은 없는 검사보다 나쁘다.**
+그래서 골든은 로컬 게이트로 둔다 — PR 전에 `make check-all`.
+
 `make accept` 는 되돌리기 어려운 명령이다. 골든이 깨졌을 때 첫 반응이
 `make accept` 라면, 그 순간 회귀 테스트는 없는 것과 같아진다.
 **먼저 `scripts/compare_to_baseline.py` 로 무엇이 얼마나 바뀌었는지 보고,
