@@ -27,18 +27,19 @@ jobs:
       # 3-second trajectories element-wise at rtol=1e-9, and whether that
       # holds across platforms is a *measured* question, not an assumed one.
       #
-      # Measured so far (see the table in CONTRIBUTING.md): the baselines
-      # were captured on macOS/arm64 with Python 3.13 and reproduce at
-      # rtol=1e-9 on macOS/Python 3.12 (miniforge), on Linux/x86-64 with
-      # Python 3.13 and 3.11, and on a clean macOS runner. Three
-      # interpreters, two CPUs, different BLAS and OSQP builds, identical
-      # trajectories to picometres.
+      # Measured (full table in CONTRIBUTING.md): the baselines were
+      # captured on macOS/arm64 and reproduce at rtol=1e-9 on Linux/x86-64
+      # (numpy 2.5.3 and 2.4.6, scipy-openblas) and on a macOS runner
+      # (Apple Accelerate). OpenBLAS and Accelerate are different
+      # implementations — different kernels, different accumulation order —
+      # and the trajectories still agree to picometres.
       #
-      # So why is golden still not a gate here? Because one green run says
-      # "it passed on this combination", not "it will pass". Dependencies
-      # move — osqp 2.x, numpy 3.x — and the honest answer is to re-measure
-      # then. Promote golden into this workflow after a few more greens,
-      # with that table as the evidence.
+      # So why is golden still not a gate here? Because osqp is 1.1.3 in
+      # every row of that table. What has been varied is BLAS, numpy, CPU
+      # and interpreter — not the QP solver, which is what actually decides
+      # the trajectory. When osqp 2.x lands, that evidence says nothing.
+      # Re-run the probe on every dependency bump, and promote golden into
+      # this workflow after a few more greens, with the table as evidence.
       #
       # Until then golden is a local gate (`make check-all` before a PR),
       # and the badge on this workflow promises only what it can: the

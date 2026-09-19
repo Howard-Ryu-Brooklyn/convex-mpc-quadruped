@@ -36,29 +36,37 @@ CI(`.github/workflows/ci.yml`)는 `pytest -m "not golden"` 과 `mypy` 만 돌린
 
 ### 측정 결과
 
-| 환경 | 결과 |
-|---|---|
-| macOS/arm64 · Python 3.13.4 · homebrew venv · numpy 2.5.1 · osqp 1.1.3 | **기준선을 뜬 곳** |
-| macOS/arm64 · Python 3.12.10 · miniforge · 다른 numpy·osqp 빌드 | ✅ rtol=1e-9 통과 |
-| Linux/x86-64 · Python 3.13 (GitHub Actions) | ✅ 통과 — 라이브러리 버전은 아래 참조 |
-| Linux/x86-64 · Python 3.11 (GitHub Actions) | ✅ 통과 |
-| macOS/arm64 · Python 3.13 (GitHub Actions) | ✅ 통과 |
+기준선은 macOS/arm64 에서 떴다. 그것이 다른 CPU·다른 BLAS·다른 numpy 에서도
+같은 궤적을 내는가 — 재본 결과다.
 
-<!-- TODO: golden-probe 실행의 job summary 에서 numpy / scipy / osqp / BLAS
-     버전을 위 표의 리눅스 두 줄에 채워 넣을 것. 워크플로가 그것을 찍는
-     이유가 이것이다 — "통과했다"만으로는 무엇이 통과한 것인지 모른다. -->
+| 환경 | numpy | scipy | osqp | BLAS | 결과 |
+|---|---|---|---|---|---|
+| macOS arm64 · py3.13.4 · homebrew venv | 2.5.1 | 1.18.0 | 1.1.3 | — | **기준선을 뜬 곳** |
+| macOS arm64 · py3.12.10 · miniforge | — | — | — | — | ✅ |
+| Linux x86-64 · py3.13.15 · GH Actions | 2.5.3 | 1.18.1 | 1.1.3 | scipy-openblas 0.3.34 | ✅ |
+| Linux x86-64 · py3.11.16 · GH Actions | 2.4.6 | 1.17.1 | 1.1.3 | scipy-openblas 0.3.31 | ✅ |
+| macOS arm64 · py3.13.15 · GH Actions | 2.5.3 | 1.18.1 | 1.1.3 | **accelerate** | ✅ |
 
-**인터프리터 세 종류, CPU 두 종류, BLAS 와 OSQP 빌드가 서로 다른데도
-피코미터 수준(rtol=1e-9)에서 같은 궤적이 나온다.** OSQP 가 결정론적이고
-연산이 배정밀도 안에서 잘 조건화되어 있다는 뜻이다.
+모두 `rtol=1e-9`. 눈여겨볼 것은 마지막 두 줄이다 — **OpenBLAS 와 Apple
+Accelerate 는 서로 다른 구현이다.** 커널도, 벡터화도, 누산 순서도 다르다.
+여기에 numpy 2.4.6 / 2.5.3, 인터프리터 3.11~3.13, x86-64 와 arm64 가 겹쳐도
+궤적이 피코미터 수준에서 같다. OSQP 의 ADMM 반복이 결정론적이고, 이 문제가
+배정밀도 안에서 충분히 잘 조건화되어 있다는 뜻이다.
 
-그러면 골든을 주 CI 로 올릴 것인가? — **아직 아니다.** 한 번의 통과는
-"이 조합에서 통과했다"이지 "앞으로 통과한다"가 아니다. 의존성이 올라가면
-(osqp 2.x, numpy 3.x) 다시 재야 한다. 몇 번 더 초록을 본 뒤에 올리고,
-그때 이 표가 그 판단의 근거가 된다.
+### 그래서 골든을 주 CI 로 올릴 것인가 — 아직 아니다
+
+위 표에서 **osqp 는 다섯 줄 전부 1.1.3 이다.** 즉 지금까지 바꿔 본 것은
+BLAS·numpy·CPU·인터프리터이지 **QP 솔버 자체가 아니다.** 궤적을 결정하는
+것은 솔버의 반복이므로, osqp 2.x 가 오면 이 표는 아무것도 말해 주지 않는다.
+numpy 3.x 도 마찬가지다.
+
+한 번의 초록은 "이 조합에서 통과했다"이지 "앞으로 통과한다"가 아니다.
+의존성 상한을 올릴 때마다 프로브를 다시 돌리고, 초록을 몇 번 더 본 뒤에
+게이트로 승격한다. 그때 이 표가 그 판단의 근거가 된다.
 
 `.github/workflows/golden-probe.yml` 을 수동 실행(workflow_dispatch)하면
-답과 그 답을 만든 툴체인이 **run 의 job summary** 에 표로 뜬다.
+답과 툴체인이 **run 페이지의 job 목록 아래** 에 표로 렌더된다
+(job 을 클릭해 들어간 로그 화면이 아니다).
 **결과를 위 표에 옮겨 적어라 — job summary 는 90 일 뒤 사라진다.**
 
 그때까지 골든은 로컬 게이트다 — PR 전에 `make check-all`.
