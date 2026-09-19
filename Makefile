@@ -29,13 +29,16 @@ run:  ## 돌리고 숫자만 (S=시나리오 P=srb|mujoco|both)
 view:  ## 돌리고 뷰어로 재생 (macOS 는 mjpython 필요). S=시나리오 X=배속
 	mjpython scripts/run_sim.py $(or $(S),G_trot) --view --loop --speed $(or $(X),1.0)
 
-gif:  ## 녹화 -> README GIF. IN= [SS=시작s] [T=길이s] [CROP=w:h:x:y] [W=720] [FPS=20] [OUT=]
+gif:  ## 녹화 -> README GIF. IN= [SS=s] [T=s] [CROP=w:h:x:y] [W=] [FPS=] [COLORS=] [OUT=]
 	@test -n "$(IN)" || (echo "사용법: make gif IN=~/Desktop/화면\\ 기록.mov"; exit 1)
 	@mkdir -p $(dir $(GIF_OUT))
+	@# 실제로 쓰인 값을 찍는다. 예전에 W=/FPS= 가 조용히 무시된 적이 있다 -
+	@# 무시된 옵션은 에러를 내지 않으므로, 쓰인 값을 보여주는 것이 유일한 방어다.
+	@echo "  W=$(GIF_W)  FPS=$(GIF_FPS)  COLORS=$(GIF_COLORS)  SS=$(or $(SS),-)  T=$(or $(T),-)  CROP=$(or $(CROP),-)"
 	@# 2-패스 팔레트 방식. 한 번에 뽑으면 256색을 프레임마다 다시 고르느라
 	@# 잔디와 그림자에 밴딩이 생긴다.
 	ffmpeg -loglevel error $(GIF_TRIM) -i "$(IN)" \
-	  -vf "$(GIF_CROP)fps=$(GIF_FPS),scale=$(GIF_W):-1:flags=lanczos,palettegen=stats_mode=diff" \
+	  -vf "$(GIF_CROP)fps=$(GIF_FPS),scale=$(GIF_W):-1:flags=lanczos,palettegen=stats_mode=diff:max_colors=$(GIF_COLORS)" \
 	  -y /tmp/quadruped-palette.png
 	ffmpeg -loglevel error $(GIF_TRIM) -i "$(IN)" -i /tmp/quadruped-palette.png \
 	  -lavfi "$(GIF_CROP)fps=$(GIF_FPS),scale=$(GIF_W):-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3" \
@@ -45,9 +48,15 @@ gif:  ## 녹화 -> README GIF. IN= [SS=시작s] [T=길이s] [CROP=w:h:x:y] [W=72
 	@echo "빈 영역 제거, W=560, FPS=15 순으로 줄여라. 추적 카메라는 배경이"
 	@echo "매 프레임 바뀌어 GIF 프레임간 압축이 거의 듣지 않는다."
 
-GIF_OUT ?= docs/media/trot.gif
-GIF_FPS ?= 20
-GIF_W   ?= 720
+# ?= 를 쓰면 안 된다. ?= 는 GIF_W 가 정의됐는지를 보는데, 명령줄은 W 를
+# 설정하므로 둘이 만나지 않는다. 실제로 W=/FPS=/OUT= 가 조용히 무시되고
+# 있었다 - help 에 적힌 약속을 Makefile 이 지키지 않은 것이다.
+GIF_OUT    = $(or $(OUT),docs/media/trot.gif)
+GIF_FPS    = $(or $(FPS),20)
+GIF_W      = $(or $(W),720)
+# 256 색 전부를 쓰면 체커보드 바닥의 그라데이션이 팔레트를 다 먹는다.
+# 이 장면은 파랑 계열 + 회색 몸통 + 노란 발이라 128 로도 충분하다.
+GIF_COLORS = $(or $(COLORS),128)
 # macOS 의 '선택 부분 기록' 은 선택 영역 표시선을 프레임에 남길 때가 있다.
 # CROP=w:h:x:y 로 가장자리를 몇 px 잘라낸다. 예: CROP=1912:1070:4:4
 COMMA    := ,
