@@ -25,6 +25,29 @@ Through Convex Model-Predictive Control* (IROS 2018): a 13-state single-rigid-bo
 model linearized about ZYX Euler angles, a QP over a 10-step horizon solved with OSQP,
 Raibert footstep planning, and Bézier swing trajectories.
 
+## What this repository is actually for
+
+This started as code that ran. The robot walked, the plots looked right. Adding
+instrumentation and tests surfaced **thirteen defects** in it. A few of them:
+
+- An attitude-kinematics term missing a transpose. `Θ̇ = R_z(ψ)ᵀ·ω` and
+  `Θ̇ = R_z(ψ)·ω` **are the same equation at ψ = 0**, so no straight-line
+  scenario could ever reproduce it.
+- Ground reaction forces computed at 30 Hz while contact was evaluated at
+  1 kHz, so airborne legs carried force for up to 33 ms. Two of the four legs
+  measured zero because their transitions happened to align with the MPC grid —
+  and the logger also ran at 30 Hz, so the lag was absent from the log itself.
+- Swing torque exceeding its limit at 273.8 N·m. Doubling the gain quadrupled
+  the torque — `ω_n²`, the signature of a *fixed position error times stiffness*,
+  which meant a step input existed somewhere. It was the footstep target being
+  refreshed on the MPC clock.
+
+[`docs/defects.md`](docs/defects.md) is the more interesting half of this
+repository. Not the list — the six *shapes* those defects took, and the five
+measurements that tell you which shape you are looking at.
+[`docs/architecture.md`](docs/architecture.md) is where those lessons ended up
+as boundaries.
+
 ## Quickstart (about 60 seconds)
 
 ```bash
@@ -122,6 +145,7 @@ the experiment: finding where a linearized MPC stops holding.
 - [`docs/architecture.md`](docs/architecture.md) — the boundaries, and why they sit where they do
 - [`docs/defects.md`](docs/defects.md) — thirteen defects found while hardening this code, and what each one taught
 - [`models/mit_cheetah3/README.md`](models/mit_cheetah3/README.md) — the model is MIT Cheetah 3 dynamics with Unitree A1 visual meshes
+- [`docs/README.ko.md`](docs/README.ko.md) — 한국어 요약 (Korean summary)
 
 Source comments and design docs are in Korean; this README and the code identifiers
 are in English.

@@ -32,3 +32,6 @@ results/
 !baselines/*.npz
 !models/**/*.png
 !docs/media/**
+
+# 포트폴리오 초안 — 저장소에 커밋하지 않는다
+_portfolio-*.md
