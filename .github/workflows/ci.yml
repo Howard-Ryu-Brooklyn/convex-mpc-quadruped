@@ -20,18 +20,27 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[mujoco,dev]"
 
-      # Golden trajectory tests are deliberately excluded from CI.
+      # Golden trajectory tests are not run here. They are run by
+      # .github/workflows/golden-probe.yml, on demand.
       #
-      # They compare 3-second trajectories element-wise against baselines
-      # captured on one machine. Bit-exactness there depends on the BLAS
-      # implementation numpy links against and on how OSQP was built — both
-      # differ between a macOS/arm64 wheel and a Linux/x86-64 one. Running
-      # them here would produce a red light that says "different CPU", not
-      # "broken physics", and a check that fails for reasons nobody acts on
-      # is worse than no check: people start ignoring it.
+      # Why they are separate, stated honestly: the golden tests compare
+      # 3-second trajectories element-wise at rtol=1e-9, and whether that
+      # holds across platforms is a *measured* question, not an assumed one.
       #
-      # So CI guards what is platform-independent, and golden regression
-      # stays a local gate (`make check-all` before a PR). See CONTRIBUTING.md.
+      # What has been measured so far — both on macOS/arm64:
+      #     captured   Python 3.13.4, homebrew venv, numpy 2.5.1, osqp 1.1.3
+      #     reproduced Python 3.12.10, miniforge base, different numpy and
+      #                osqp builds  -> passes at rtol=1e-9
+      #
+      # What has NOT been measured: Linux/x86-64, where numpy links a
+      # different BLAS and OSQP is a different wheel. It may well pass. The
+      # probe workflow exists to find out rather than to guess, and the
+      # answer will be recorded in CONTRIBUTING.md when it is known.
+      #
+      # Until then golden stays a local gate (`make check-all` before a PR),
+      # and the badge on this workflow means only what it can actually
+      # promise: the platform-independent checks are green.
+
       - name: Physics and contract tests
         run: pytest -m "not golden" -q
 

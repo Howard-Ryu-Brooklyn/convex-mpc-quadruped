@@ -1,0 +1,50 @@
+# Golden reproducibility probe — an experiment, not a gate.
+#
+# Question: do the golden trajectories, captured on macOS/arm64, reproduce
+# at rtol=1e-9 on other platforms?
+#
+# Known so far: yes across two different macOS/arm64 toolchains
+# (Python 3.13 homebrew venv -> Python 3.12 miniforge, different numpy and
+# osqp builds). Linux/x86-64 is unmeasured.
+#
+# Deliberately manual (workflow_dispatch). A probe whose answer is unknown
+# should not sit on the main workflow's badge — a red light nobody can act
+# on is worse than no light. Run it, read the answer, and record it.
+name: Golden probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  golden:
+    name: golden on ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true      # 답을 모르는 질문이므로 실패도 결과다
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: macos-14,      python: "3.13" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - run: python -m pip install -e ".[dev]"
+
+      - name: Record the toolchain that produced the answer
+        run: |
+          python -c "import numpy, scipy, osqp, platform; \
+            print('platform', platform.platform(), platform.machine()); \
+            print('numpy   ', numpy.__version__); \
+            print('scipy   ', scipy.__version__); \
+            print('osqp    ', osqp.__version__)"
+          python -c "import numpy; print(numpy.show_config())"
+
+      - name: Golden trajectories
+        run: pytest -m golden -v

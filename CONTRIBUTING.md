@@ -29,12 +29,29 @@ git config diff.ipynb.textconv    'python -m nbstripout -t'
 | `make check-all` | PR 을 올리기 전. 골든 회귀까지 |
 | `make accept` | **물리를 의도적으로 바꿨을 때만.** 기준선을 다시 뜬다 |
 
+### 골든은 왜 CI 의 게이트가 아닌가
+
 CI(`.github/workflows/ci.yml`)는 `pytest -m "not golden"` 과 `mypy` 만 돌린다.
-골든은 일부러 뺐다 — 궤적을 요소별로 비교하므로 비트 정확도가 numpy 가 링크한
-BLAS 구현과 OSQP 빌드 방식에 달려 있고, 그것은 macOS/arm64 휠과 Linux/x86-64
-휠에서 다르다. CI 에서 돌리면 "물리가 깨졌다"가 아니라 "CPU 가 다르다"는
-빨간불이 뜬다. **아무도 조치하지 않는 빨간불은 없는 검사보다 나쁘다.**
-그래서 골든은 로컬 게이트로 둔다 — PR 전에 `make check-all`.
+골든이 플랫폼을 건너 재현되는지는 **측정의 문제이지 가정의 문제가 아니다.**
+
+지금까지 측정된 것 (둘 다 macOS/arm64):
+
+| | 환경 |
+|---|---|
+| 기준선을 뜬 곳 | Python 3.13.4, homebrew venv, numpy 2.5.1, osqp 1.1.3 |
+| 재현한 곳 | Python 3.12.10, miniforge base, 다른 numpy·osqp 빌드 |
+
+**rtol=1e-9 로 통과했다.** 인터프리터와 빌드가 다른데도 피코미터 수준에서 같다.
+
+측정되지 **않은** 것: Linux/x86-64. numpy 가 링크하는 BLAS 와 OSQP 휠이 다르다.
+통과할 수도 있다. `.github/workflows/golden-probe.yml` 이 그것을 재기 위해 있고,
+수동 실행(workflow_dispatch)이다 — 답을 모르는 질문을 주 워크플로의 배지에
+올리면, 아무도 조치할 수 없는 빨간불이 생긴다. **그런 빨간불은 없는 검사보다
+나쁘다.** 옆에 있는 진짜 빨간불까지 함께 무시되기 때문이다.
+
+프로브를 돌렸으면 **답을 이 표에 적어라.** 그것이 이 절의 용도다.
+
+그때까지 골든은 로컬 게이트다 — PR 전에 `make check-all`.
 
 `make accept` 는 되돌리기 어려운 명령이다. 골든이 깨졌을 때 첫 반응이
 `make accept` 라면, 그 순간 회귀 테스트는 없는 것과 같아진다.
