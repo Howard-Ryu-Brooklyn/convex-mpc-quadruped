@@ -11,12 +11,10 @@ horizon 조립 결과가 '반환값'이 되어 결함 2 가 구조적으로 불�
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import numpy as np
 from numpy.typing import NDArray
 
-from quadruped_mpc.control.gait_planning import get_contact_state
+from quadruped_mpc.control.gait_planning import PhaseOffsets, get_contact_state
 from quadruped_mpc.core.robot_types import HorizonPlan
 
 
@@ -116,7 +114,7 @@ def build_contact_schedule(
     current_time: float,
     gait_period: float,
     gait_duty: float,
-    gait_phase_offset: Sequence[float] | NDArray[np.float64],
+    gait_phase_offset: PhaseOffsets,
     horizon: int,
     mpc_dt: float,
 ) -> NDArray[np.bool_]:

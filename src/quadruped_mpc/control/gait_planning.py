@@ -7,7 +7,21 @@
 """
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Sequence
+from typing import TypeAlias, TypedDict
+
+import numpy as np
+from numpy.typing import NDArray
+
+#: 위상 오프셋을 받는 쪽의 타입.
+#:
+#: get_gait_parameters 는 list[float] 를 주지만, 러너는 그것을 numpy 배열로
+#: 들고 다니는 경로가 있다. 받는 쪽을 list[float] 로 좁게 적으면 배열 경로가
+#: 검사기에서 막히고, 그때 호출부마다 cast 를 붙이는 것이 유혹이 된다.
+#:
+#: 별칭을 **개념의 주인인 이 모듈에** 둔다. 같은 합집합을 planning.py 에도
+#: 따로 적어 두면 두 곳이 갈라진다 — 이 저장소가 결함 3 으로 배운 것이다.
+PhaseOffsets: TypeAlias = Sequence[float] | NDArray[np.float64]
 
 # --- 1. 상수 정의 ---
 AIR = 1
@@ -86,13 +100,13 @@ def get_gait_parameters(gait_name: str) -> tuple[float, float, list[float]]:
 
 
 def get_contact_state(global_phase: float, duty_cycle: float,
-                      phase_offsets: list[float]) -> list[int]:
+                      phase_offsets: PhaseOffsets) -> list[int]:
     """현재 위상에서 네 다리의 접촉 상태 [FR, FL, RR, RL] 를 돌려준다.
 
     Args:
         global_phase: 보행 주기 내 진행률 0.0~1.0.
         duty_cycle: 지지 비율. 1.0 이면 항상 지지(standing).
-        phase_offsets: 다리별 위상 오프셋.
+        phase_offsets: 다리별 위상 오프셋. list 와 numpy 배열 모두 받는다.
 
     Returns:
         길이 4 의 리스트. 값은 GROUND(0) 또는 AIR(1).
@@ -103,7 +117,7 @@ def get_contact_state(global_phase: float, duty_cycle: float,
 
     for leg in range(4):
         # 각 다리의 위상(offset 반영)을 0.0 ~ 1.0 으로 정규화
-        leg_phase = (global_phase + phase_offsets[leg]) % 1.0
+        leg_phase = (global_phase + float(phase_offsets[leg])) % 1.0
         # duty_cycle 이내면 지지(GROUND), 넘어가면 체공(AIR)
         sa[leg] = GROUND if leg_phase < duty_cycle else AIR
 
