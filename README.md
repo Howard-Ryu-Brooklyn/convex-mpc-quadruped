@@ -1,6 +1,6 @@
 # Convex MPC for Quadruped Locomotion
 
-[![CI](https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO/actions/workflows/ci.yml/badge.svg)](https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO/actions/workflows/ci.yml)
+[![CI](https://github.com/Howard-Ryu-Brooklyn/convex-mpc-quadruped/actions/workflows/ci.yml/badge.svg)](https://github.com/Howard-Ryu-Brooklyn/convex-mpc-quadruped/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 
@@ -51,7 +51,7 @@ as boundaries.
 ## Quickstart (about 60 seconds)
 
 ```bash
-git clone https://github.com/Howard-Ryu-Brooklyn/MIT_Cheetah3_BYO.git
+git clone https://github.com/Howard-Ryu-Brooklyn/convex-mpc-quadruped.git
 cd Convex-MPC
 python -m venv .venv && source .venv/bin/activate    # Python 3.11+
 make install                                          # pip install -e ".[mujoco,notebook,dev]"
