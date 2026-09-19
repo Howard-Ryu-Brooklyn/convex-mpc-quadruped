@@ -34,22 +34,32 @@ git config diff.ipynb.textconv    'python -m nbstripout -t'
 CI(`.github/workflows/ci.yml`)는 `pytest -m "not golden"` 과 `mypy` 만 돌린다.
 골든이 플랫폼을 건너 재현되는지는 **측정의 문제이지 가정의 문제가 아니다.**
 
-지금까지 측정된 것 (둘 다 macOS/arm64):
+### 측정 결과
 
-| | 환경 |
+| 환경 | 결과 |
 |---|---|
-| 기준선을 뜬 곳 | Python 3.13.4, homebrew venv, numpy 2.5.1, osqp 1.1.3 |
-| 재현한 곳 | Python 3.12.10, miniforge base, 다른 numpy·osqp 빌드 |
+| macOS/arm64 · Python 3.13.4 · homebrew venv · numpy 2.5.1 · osqp 1.1.3 | **기준선을 뜬 곳** |
+| macOS/arm64 · Python 3.12.10 · miniforge · 다른 numpy·osqp 빌드 | ✅ rtol=1e-9 통과 |
+| Linux/x86-64 · Python 3.13 (GitHub Actions) | ✅ 통과 — 라이브러리 버전은 아래 참조 |
+| Linux/x86-64 · Python 3.11 (GitHub Actions) | ✅ 통과 |
+| macOS/arm64 · Python 3.13 (GitHub Actions) | ✅ 통과 |
 
-**rtol=1e-9 로 통과했다.** 인터프리터와 빌드가 다른데도 피코미터 수준에서 같다.
+<!-- TODO: golden-probe 실행의 job summary 에서 numpy / scipy / osqp / BLAS
+     버전을 위 표의 리눅스 두 줄에 채워 넣을 것. 워크플로가 그것을 찍는
+     이유가 이것이다 — "통과했다"만으로는 무엇이 통과한 것인지 모른다. -->
 
-측정되지 **않은** 것: Linux/x86-64. numpy 가 링크하는 BLAS 와 OSQP 휠이 다르다.
-통과할 수도 있다. `.github/workflows/golden-probe.yml` 이 그것을 재기 위해 있고,
-수동 실행(workflow_dispatch)이다 — 답을 모르는 질문을 주 워크플로의 배지에
-올리면, 아무도 조치할 수 없는 빨간불이 생긴다. **그런 빨간불은 없는 검사보다
-나쁘다.** 옆에 있는 진짜 빨간불까지 함께 무시되기 때문이다.
+**인터프리터 세 종류, CPU 두 종류, BLAS 와 OSQP 빌드가 서로 다른데도
+피코미터 수준(rtol=1e-9)에서 같은 궤적이 나온다.** OSQP 가 결정론적이고
+연산이 배정밀도 안에서 잘 조건화되어 있다는 뜻이다.
 
-프로브를 돌렸으면 **답을 이 표에 적어라.** 그것이 이 절의 용도다.
+그러면 골든을 주 CI 로 올릴 것인가? — **아직 아니다.** 한 번의 통과는
+"이 조합에서 통과했다"이지 "앞으로 통과한다"가 아니다. 의존성이 올라가면
+(osqp 2.x, numpy 3.x) 다시 재야 한다. 몇 번 더 초록을 본 뒤에 올리고,
+그때 이 표가 그 판단의 근거가 된다.
+
+`.github/workflows/golden-probe.yml` 을 수동 실행(workflow_dispatch)하면
+답과 그 답을 만든 툴체인이 **run 의 job summary** 에 표로 뜬다.
+**결과를 위 표에 옮겨 적어라 — job summary 는 90 일 뒤 사라진다.**
 
 그때까지 골든은 로컬 게이트다 — PR 전에 `make check-all`.
 

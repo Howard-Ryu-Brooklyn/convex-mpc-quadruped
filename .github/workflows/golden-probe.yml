@@ -1,15 +1,17 @@
 # Golden reproducibility probe — an experiment, not a gate.
 #
-# Question: do the golden trajectories, captured on macOS/arm64, reproduce
-# at rtol=1e-9 on other platforms?
+# Question: the golden trajectories were captured on macOS/arm64. Do they
+# reproduce at rtol=1e-9 on a different CPU, a different BLAS and a
+# different OSQP wheel?
 #
-# Known so far: yes across two different macOS/arm64 toolchains
-# (Python 3.13 homebrew venv -> Python 3.12 miniforge, different numpy and
-# osqp builds). Linux/x86-64 is unmeasured.
+# The answer is written to the run's **job summary**, not buried in the
+# step log. A probe whose answer costs four clicks to reach is a probe
+# nobody reads — the same reason the runners expose max_torque_stance and
+# max_torque_swing separately instead of one number.
 #
-# Deliberately manual (workflow_dispatch). A probe whose answer is unknown
-# should not sit on the main workflow's badge — a red light nobody can act
-# on is worse than no light. Run it, read the answer, and record it.
+# Deliberately manual (workflow_dispatch) and badge-less: a question whose
+# answer is unknown should not sit on a badge, because nobody would know
+# what the badge promises.
 name: Golden probe
 
 on:
@@ -37,14 +39,38 @@ jobs:
 
       - run: python -m pip install -e ".[dev]"
 
-      - name: Record the toolchain that produced the answer
+      # 답을 낸 툴체인을 기록한다. "통과했다"만으로는 무엇이 통과한 것인지
+      # 알 수 없다 - 재현성 주장은 그것을 만든 환경과 함께여야 주장이 된다.
+      - name: Record the toolchain
         run: |
-          python -c "import numpy, scipy, osqp, platform; \
-            print('platform', platform.platform(), platform.machine()); \
-            print('numpy   ', numpy.__version__); \
-            print('scipy   ', scipy.__version__); \
-            print('osqp    ', osqp.__version__)"
-          python -c "import numpy; print(numpy.show_config())"
+          python - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import platform, numpy, scipy, osqp
+          try:
+              blas = numpy.show_config("dicts")["Build Dependencies"]["blas"]
+              blas_s = f'{blas.get("name", "?")} {blas.get("version", "")}'.strip()
+          except Exception as e:                      # numpy 가 형식을 바꾸면
+              blas_s = f"(읽지 못함: {e})"            # 조용히 비우지 않고 이유를 남긴다
+          print(f'### `{platform.system()} {platform.machine()}` · Python {platform.python_version()}')
+          print()
+          print("| | |")
+          print("|---|---|")
+          print(f"| platform | `{platform.platform()}` |")
+          print(f"| numpy | {numpy.__version__} |")
+          print(f"| scipy | {scipy.__version__} |")
+          print(f"| osqp | {osqp.__version__} |")
+          print(f"| BLAS | {blas_s} |")
+          print()
+          PY
 
       - name: Golden trajectories
+        id: golden
         run: pytest -m golden -v
+
+      # 판정을 요약에 남긴다. if: always() 가 없으면 실패한 경우 - 즉
+      # 가장 알고 싶은 경우 - 에 이 줄이 실행되지 않는다.
+      - name: Record the verdict
+        if: always()
+        run: |
+          echo "**golden (rtol=1e-9): \`${{ steps.golden.outcome }}\`**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "결과를 CONTRIBUTING.md 의 표에 옮겨 적어라. 요약은 90 일 뒤 사라진다." >> "$GITHUB_STEP_SUMMARY"

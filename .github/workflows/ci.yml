@@ -27,19 +27,22 @@ jobs:
       # 3-second trajectories element-wise at rtol=1e-9, and whether that
       # holds across platforms is a *measured* question, not an assumed one.
       #
-      # What has been measured so far — both on macOS/arm64:
-      #     captured   Python 3.13.4, homebrew venv, numpy 2.5.1, osqp 1.1.3
-      #     reproduced Python 3.12.10, miniforge base, different numpy and
-      #                osqp builds  -> passes at rtol=1e-9
+      # Measured so far (see the table in CONTRIBUTING.md): the baselines
+      # were captured on macOS/arm64 with Python 3.13 and reproduce at
+      # rtol=1e-9 on macOS/Python 3.12 (miniforge), on Linux/x86-64 with
+      # Python 3.13 and 3.11, and on a clean macOS runner. Three
+      # interpreters, two CPUs, different BLAS and OSQP builds, identical
+      # trajectories to picometres.
       #
-      # What has NOT been measured: Linux/x86-64, where numpy links a
-      # different BLAS and OSQP is a different wheel. It may well pass. The
-      # probe workflow exists to find out rather than to guess, and the
-      # answer will be recorded in CONTRIBUTING.md when it is known.
+      # So why is golden still not a gate here? Because one green run says
+      # "it passed on this combination", not "it will pass". Dependencies
+      # move — osqp 2.x, numpy 3.x — and the honest answer is to re-measure
+      # then. Promote golden into this workflow after a few more greens,
+      # with that table as the evidence.
       #
-      # Until then golden stays a local gate (`make check-all` before a PR),
-      # and the badge on this workflow means only what it can actually
-      # promise: the platform-independent checks are green.
+      # Until then golden is a local gate (`make check-all` before a PR),
+      # and the badge on this workflow promises only what it can: the
+      # platform-independent checks are green.
 
       - name: Physics and contract tests
         run: pytest -m "not golden" -q
