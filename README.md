@@ -4,6 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 
+<p align="center">
+  <img src="docs/media/trot.gif" width="560" alt="MIT Cheetah 3 trotting at 1 m/s in MuJoCo">
+  <br>
+  <sub>Trotting at 1 m/s in MuJoCo. The same controller also drives the analytic plant — <code>make run S=G_trot P=both</code> puts the two side by side.</sub>
+</p>
+
 An ideal single-rigid-body plant and a MuJoCo plant, behind **one plant interface**,
 driven by **one controller**. Swapping the plant is a one-line change — which is the
 whole point: the two simulators answer different questions, and running the same
@@ -18,10 +24,6 @@ The controller follows Di Carlo et al., *Dynamic Locomotion in the MIT Cheetah 3
 Through Convex Model-Predictive Control* (IROS 2018): a 13-state single-rigid-body
 model linearized about ZYX Euler angles, a QP over a 10-step horizon solved with OSQP,
 Raibert footstep planning, and Bézier swing trajectories.
-
-<!-- GIF 를 docs/media/trot.gif 에 넣은 뒤 아래 두 줄의 주석을 벗기면 된다.
-<p align="center"><img src="docs/media/trot.gif" width="720" alt="Trotting at 1 m/s in MuJoCo"></p>
--->
 
 ## Quickstart (about 60 seconds)
 
