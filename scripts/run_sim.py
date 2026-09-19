@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import unicodedata
 from typing import Any
 
 import numpy as np
@@ -111,6 +112,21 @@ def print_catalog() -> None:
 
 
 # ── 보고 ──────────────────────────────────────────────────────────────
+def _w(text: str) -> int:
+    """터미널에서 차지하는 칸 수. 한글·한자는 두 칸이다.
+
+    str.ljust / f"{x:<12s}" 는 문자 **개수**로 채운다. 한글이 섞이면 실제
+    렌더 폭과 어긋나 표가 밀린다. 라벨이 한글인 표를 만들 때마다 나오는
+    문제라, 폭 계산을 한 곳에 둔다.
+    """
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
+def _pad(text: str, width: int, right: bool = False) -> str:
+    """렌더 폭 기준으로 채운다."""
+    fill = " " * max(0, width - _w(text))
+    return fill + text if right else text + fill
+
 def metrics(res: dict[str, Any]) -> dict[str, str]:
     """판정하지 않는다. 숫자만 낸다."""
     pos, vel, rpy = res["com_pos"], res["com_vel"], res["rpy"]
@@ -129,6 +145,9 @@ def metrics(res: dict[str, Any]) -> dict[str, str]:
         m["최대 토크 [N·m]"]  = f"{float(res['max_torque_nm']):.1f}"
         m["  지지"]           = f"{float(res['max_torque_stance_nm']):.1f}"
         m["  스윙"]           = f"{float(res['max_torque_swing_nm']):.1f}"
+        # 정상값은 '최대 스윙 속도 x 스윙 dt' 다 — 지령은 스윙 틱(1kHz)마다만
+        # 바뀌므로 물리 dt 가 아니다. trot 1 m/s 에서 3 mm 근처가 정상이고,
+        # 결함 13 당시에는 17 mm 였다. 몇 배로 벗어나는지가 신호다.
         m["지령 점프 [mm]"]   = f"{float(res['max_cmd_jump_m']) * 1e3:.2f}"
         m["yaw 스텝 °"]       = f"{np.rad2deg(float(res['max_yaw_step'])):.2f}"
     return m
@@ -142,12 +161,14 @@ def report(title: str, results: dict[str, dict[str, Any]]) -> None:
                 keys.append(k)
     table = {c: metrics(results[c]) for c in cols}
 
-    w = max(len(k) for k in keys) + 2
-    line = "─" * (w + 16 * len(cols))
+    w = max(_w(k) for k in keys) + 2
+    col = 16
+    line = "─" * (w + col * len(cols) + 2)
     print(f"\n{line}\n  {title}\n{line}")
-    print(f"  {'':<{w}s}" + "".join(f"{c:>16s}" for c in cols))
+    print("  " + _pad("", w) + "".join(_pad(c, col, right=True) for c in cols))
     for k in keys:
-        print(f"  {k:<{w}s}" + "".join(f"{table[c].get(k, '—'):>16s}" for c in cols))
+        print("  " + _pad(k, w)
+              + "".join(_pad(table[c].get(k, "—"), col, right=True) for c in cols))
     print()
     if len(cols) == 2:
         print("  두 열의 차이가 곧 '선형화와 이상화의 대가'다. "
