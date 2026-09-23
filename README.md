@@ -10,6 +10,18 @@
   <sub>Trotting at 1 m/s in MuJoCo. The same controller also drives the analytic plant — <code>make run S=G_trot P=both</code> puts the two side by side.</sub>
 </p>
 
+이 리포지토리는 두 단계로 만들어졌습니다.
+
+1. **[Convex-MPC](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC)** — MIT Cheetah 3 Convex MPC 논문을
+   참고 코드 없이 처음부터 직접 구현한 프로토타입입니다. 단일 강체 동역학 모델링, QP 정식화, 좌표계 처리,
+   MuJoCo 연동까지 전부 혼자 작성했고 trot/gallop/bound 보행이 여기서 처음 성공했습니다.
+2. **이 리포지토리** — 위 프로토타입에 계측과 테스트를 추가하는 과정에서 열세 가지 결함을 발견했고, 이를
+   고치고 패키지 구조·CI·문서로 정리하는 하드닝 작업을 Claude Code와 페어 프로그래밍으로 진행했습니다.
+   결함을 찾아내고 무엇을 어떻게 고칠지 판단한 건 제 몫이었고, 구현 반복은 Claude Code로 가속했습니다.
+
+커밋 히스토리 대부분이 Claude 명의인 건 이 협업 과정을 그대로 남긴 기록입니다. `docs/defects.md`의
+열세 가지 결함은 각각 어떻게 발견했고 왜 발생했는지 설명 가능합니다.
+
 An ideal single-rigid-body plant and a MuJoCo plant, behind **one plant interface**,
 driven by **one controller**. Swapping the plant is a one-line change — which is the
 whole point: the two simulators answer different questions, and running the same
