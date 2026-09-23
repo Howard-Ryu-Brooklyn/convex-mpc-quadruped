@@ -8,14 +8,21 @@ class ScenarioSpec(TypedDict, total=False):
     """run_scenario / run_scenario_mujoco 에 그대로 넘길 수 있는 인자 묶음.
 
     TypedDict 를 쓰는 이유
-        평범한 dict 는 값 타입이 섞이면 dict[str, object] 로 추론되고, 그것을
-        **kwargs 로 펼치면 타입 검사기가 모든 인자에 대해 불평한다. 그보다
-        중요한 것은 **키 오타를 잡아 준다**는 점이다. duration_s 를 duration
-        으로 잘못 쓰면 run_scenario 는 기본값 3.0 초로 조용히 돌아가고,
-        기준선은 '내가 의도한 것과 다른 시나리오'로 캡처된다.
+        평범한 dict 는 값 타입이 섞이면 dict[str, object] 로 추론돼서, mypy 가
+        키 이름을 검사하지 않는다. 키와 타입을 선언해 두면 duration_s 를
+        duration 으로 잘못 쓰거나 horizon="10" 처럼 타입을 틀린 걸 실행 전에
+        mypy(CI)에서 잡을 수 있다.
 
-        total=False 인 이유: 시나리오마다 명시하는 인자가 다르고, 나머지는
-        run_scenario 의 기본값을 쓰는 것이 의도이기 때문이다.
+        오타 난 키는 러너에 **kwargs 가 없어서 실행하면 TypeError 가 나긴 한다.
+        이점은 이걸 실행 전에, 테스트가 돌리지 않는 GALLERY 시나리오까지
+        잡아 준다는 것.
+
+        검사는 타입 주석을 붙인 곳에서만 된다. 병합 리터럴에는
+        `spec: ScenarioSpec = {...}` 처럼 주석을 붙여야 한다 (run_sim.build_spec).
+
+        total=False 인 이유: 시나리오마다 필요한 인자만 쓰고 나머지는
+        run_scenario 기본값을 쓰려고. 대신 키를 빠뜨린 건 잡지 못하고,
+        그 경우 기본값이 조용히 쓰인다.
     """
 
     gait_name: str
