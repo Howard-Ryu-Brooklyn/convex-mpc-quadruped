@@ -9,10 +9,11 @@ config.py 는 로봇 상수만 담고, 계산은 전부 여기로 모은다.
     q2 : hip    (pitch) 고관절 전후
     q3 : knee   (pitch) 무릎. 뒤로 꺾이므로 항상 음수
 
+FK · IK · 자코비안은 같은 규약(leg 인자로 abad 부호 결정)을 쓴다.
+    FK(IK(p)) == p 왕복과, 자코비안 vs FK 수치 미분을 tests/test_kinematics.py 가 확인한다.
+
 TODO(Step 3): compute_leg_ik 는 도달 불가능한 목표에 대해 NaN 배열을 반환하고,
     호출부가 이를 검사하지 않아 실패가 조용히 전파된다. 예외로 바꾼다.
-TODO(Step 5): 순기구학(FK)이 없어 IK/FK 왕복 테스트를 쓸 수 없다.
-    지금은 코사인 법칙 일관성으로 부분 검증만 한다.
 """
 from __future__ import annotations
 
@@ -253,42 +254,49 @@ def get_r_feet_bf(
     return Pfoot_bf + hip_location_bf
 
 
-def compute_leg_jacobian(
+def leg_jacobian(
     q: Vec3,
+    leg: int,
     l_hip: float = cfg.link_hip,
     l_thigh: float = cfg.link_upper,
     l_calf: float = cfg.link_lower,
 ) -> Mat3:
+    """발 위치의 관절각 미분 J = dp/dq (3,3). leg_forward_kinematics 를 미분한 것.
+
+    FK 와 같은 규약을 쓴다: 고관절 원점 기준, 바디 프레임, abad 부호는 leg 가 정한다.
+    스윙 다리의 작업공간 제어(tau = J^T f)나 발 속도(v = J q_dot)에 쓴다.
+
+    예전 compute_leg_jacobian 을 지우고 새로 만든 이유
+        옛 함수는 leg 인자가 없었고(결함 11 과 같은 부호 문제), 이 저장소의
+        FK 와 규약이 달라 수치 미분과 최대 1.34 차이가 났다 (무작위 관절각 800 개). 아무 데서도
+        쓰이지 않아 아무도 몰랐다. MuJoCo 쪽은 mj_jacSite 를 쓴다.
+
+    유도 (A = l1 c2 + l2 c23, B = l1 s2 + l2 s23, h = ±l_hip)
+        p = [-B,  c1 h + s1 A,  s1 h - c1 A]
+        dp/dq1 = [ 0,       -s1 h + c1 A,  c1 h + s1 A]
+        dp/dq2 = [-A,       -s1 B,         c1 B       ]
+        dp/dq3 = [-l2 c23,  -s1 l2 s23,    c1 l2 s23  ]
+
+    Args:
+        q: (3,) [q_abad, q_hip, q_knee] [rad]
+        leg: 다리 인덱스 0..3 (FR FL RR RL). abad 링크 방향 부호를 결정한다.
+        l_hip: abad 링크 길이 (크기). 부호는 leg 가 정한다.
+
+    Returns:
+        (3,3) 자코비안. 열 = 관절 (abad, hip, knee), 행 = 발 위치 (x, y, z).
     """
-    관절 각도 q = [q1, q2, q3]를 받아 3x3 자코비안 행렬을 반환합니다.
-    """
-    q1, q2, q3 = q[0], q[1], q[2]
-    
-    # 삼각함수 연산
+    q1, q2, q3 = float(q[0]), float(q[1]), float(q[2])
+    h = LEG_HIP_SIGN[leg] * abs(l_hip)
+
     s1, c1 = np.sin(q1), np.cos(q1)
     s2, c2 = np.sin(q2), np.cos(q2)
     s23, c23 = np.sin(q2 + q3), np.cos(q2 + q3)
-    
-    # 공통 항 
-    term_c = l_thigh * c2 + l_calf * c23
-    term_s = l_thigh * s2 + l_calf * s23
-    
-    # 3x3 자코비안 생성
-    J = np.zeros((3, 3))
-    
-    # Row 0 (X)
-    J[0, 0] = 0.0
-    J[0, 1] = -term_c
-    J[0, 2] = -l_calf * c23
-    
-    # Row 1 (Y)
-    J[1, 0] = -l_hip * s1 - c1 * term_c
-    J[1, 1] = s1 * term_s
-    J[1, 2] = l_calf * s1 * s23
-    
-    # Row 2 (Z)
-    J[2, 0] = -l_hip * c1 + s1 * term_c
-    J[2, 1] = c1 * term_s
-    J[2, 2] = l_calf * c1 * s23
-    
-    return J
+
+    A = l_thigh * c2 + l_calf * c23
+    B = l_thigh * s2 + l_calf * s23
+
+    return np.array([
+        [0.0,              -A,       -l_calf * c23],
+        [-s1 * h + c1 * A, -s1 * B,  -s1 * l_calf * s23],
+        [c1 * h + s1 * A,   c1 * B,   c1 * l_calf * s23],
+    ])

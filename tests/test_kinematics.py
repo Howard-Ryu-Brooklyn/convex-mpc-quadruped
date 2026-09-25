@@ -1,12 +1,11 @@
 """다리 기구학 검증.
 
-compute_leg_ik 는 지금까지 한 번도 검증된 적이 없다. 손으로 유도한 삼각함수
-식이고 부호 규약이 여러 군데 얽혀 있어, 틀렸어도 시뮬레이션은 그럴듯하게
-돌아간다 (IK 결과는 시각화와 관절 로깅에만 쓰이기 때문이다).
+IK 와 자코비안은 손으로 유도한 삼각함수 식이고 부호 규약이 여러 군데 얽혀 있다.
+틀려도 시뮬레이션은 그럴듯하게 돌아가서(SRB 에서는 관절각을 로깅에만 쓴다)
+정답과 비교하는 대신 서로 독립적으로 성립해야 하는 성질로 확인한다.
 
-순기구학(FK)이 없어 IK/FK 왕복 테스트는 아직 쓸 수 없다. 대신 FK 없이도
-성립해야 하는 필요조건 — 코사인 법칙 — 으로 부분 검증한다.
-완전한 왕복 검증은 Step 5 에서 FK 를 추가하며 다룬다.
+    IK        : FK(IK(p)) == p 왕복, 코사인 법칙, 좌우 거울 대칭
+    자코비안   : FK 의 수치 미분과 일치, IK 로 만든 작은 관절 변화를 발 변위로 되돌림
 """
 import numpy as np
 import numpy.testing as npt
@@ -22,6 +21,7 @@ from quadruped_mpc.core.kinematics import (
     get_interior_angle,
     get_q,
     get_r_feet_bf,
+    leg_jacobian,
 )
 
 L_HIP, L1, L2 = cfg.link_hip, cfg.link_upper, cfg.link_lower
@@ -211,3 +211,77 @@ def test_clip_is_what_breaks_the_round_trip_not_the_kinematics():
 
 def test_legacy_get_q_signature_still_returns_3x4():
     assert get_q(0.34).shape == (3, 4)
+
+
+# ── 자코비안: FK 를 미분한 것이 맞는가 ─────────────────────────────────
+# 정답을 따로 알 필요 없이 "해석 미분 == 수치 미분"으로 검증하는 유형이다
+# (test_bezier 의 속도/가속도 검증과 같다). 옛 compute_leg_jacobian 은 이 비교에서
+# 최대 1.34 차이가 나서 지웠다.
+
+def _numerical_jacobian(q, leg, h=1e-6):
+    """FK 의 중심 차분. 오차는 O(h^2) ~ 1e-12."""
+    J = np.zeros((3, 3))
+    for j in range(3):
+        dq = np.zeros(3)
+        dq[j] = h
+        J[:, j] = (leg_forward_kinematics(q + dq, leg)
+                   - leg_forward_kinematics(q - dq, leg)) / (2 * h)
+    return J
+
+
+@pytest.mark.parametrize("leg", [0, 1, 2, 3])
+def test_jacobian_matches_numerical_derivative_of_fk(leg):
+    """무작위 관절각 200 개에서 해석 자코비안 == FK 수치 미분."""
+    rng = np.random.default_rng(100 + leg)
+    for _ in range(200):
+        q = np.array([rng.uniform(-0.6, 0.6),
+                      rng.uniform(-1.2, 1.2),
+                      rng.uniform(-2.5, -0.3)])
+        npt.assert_allclose(leg_jacobian(q, leg), _numerical_jacobian(q, leg),
+                            atol=1e-8)
+
+
+@pytest.mark.parametrize("leg", [0, 1, 2, 3])
+def test_jacobian_maps_small_ik_step_back_to_foot_displacement(leg):
+    """IK 와 자코비안이 같은 규약인가 — 속도 수준의 왕복.
+
+    발을 dp 만큼 옮긴 목표를 IK 로 풀면 관절 변화 dq 가 나온다.
+    J(q) @ dq 는 1 차 근사로 dp 여야 한다 (오차는 |dp|^2 수준).
+    """
+    rng = np.random.default_rng(200 + leg)
+    ok = 0
+    for _ in range(300):
+        p = np.array([rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12),
+                      rng.uniform(-0.45, -0.22)])
+        dp = rng.normal(size=3)
+        dp *= 1e-6 / np.linalg.norm(dp)
+        q = compute_leg_ik(p, leg, clip=False)
+        q_next = compute_leg_ik(p + dp, leg, clip=False)
+        if np.isnan(q).any() or np.isnan(q_next).any():
+            continue
+        J = leg_jacobian(q, leg)
+        if np.linalg.cond(J) > 1e3:          # 무릎이 거의 펴진 특이 자세는 제외
+            continue
+        npt.assert_allclose(J @ (q_next - q), dp, atol=1e-10)
+        ok += 1
+    assert ok > 200, f"유효 목표가 너무 적다 ({ok}) — 시험 자체가 무의미해진다"
+
+
+def test_jacobian_uses_the_leg_side():
+    """leg 인자가 실제로 쓰이는가. 옛 함수는 leg 를 받지 않았다 (결함 11 계열)."""
+    q = np.array([0.2, 0.4, -1.0])
+    assert not np.allclose(leg_jacobian(q, 0), leg_jacobian(q, 1))
+
+
+def test_jacobian_is_mirrored_between_left_and_right():
+    """거울 대칭(등변성). 오른쪽 다리에 q1 만 뒤집은 자세를 주면 발은 y 가 뒤집힌 곳에 있다.
+
+    p_R = M p_L (M = diag(1,-1,1)), q_R = D q_L (D = diag(-1,1,1)) 이므로
+    J_R = M J_L D.
+    """
+    M = np.diag([1.0, -1.0, 1.0])
+    D = np.diag([-1.0, 1.0, 1.0])
+    q_left = np.array([0.15, 0.5, -1.1])
+    J_left = leg_jacobian(q_left, 1)                 # FL
+    J_right = leg_jacobian(D @ q_left, 0)            # FR
+    npt.assert_allclose(J_right, M @ J_left @ D, atol=1e-12)

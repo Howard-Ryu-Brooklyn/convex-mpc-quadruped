@@ -223,7 +223,7 @@ class SRBDynamics(PlantBase):
             # F_reaction= np.where(F_G != 0, 45*9.81/2, F_G)
 
             # for i in range(4):
-            #     J = self.compute_leg_jacobian(self.q[:, i], self.lhip, self.l1, self.l2)
+            #     J = leg_jacobian(self.q[:, i], i)   # core.kinematics
             #     F_B = self.R.T @ F_G[:, i] - F_reaction[:,i]
             #     Torque_motor[:, i] = J.T @ F_B
             #     # tau max 제한
