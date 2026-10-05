@@ -16,6 +16,30 @@ Model-Predictive Control* (IROS 2018) 의 구현입니다. 13-상태 단일 강�
 ZYX 오일러각 기준으로 선형화하고, 10-스텝 호라이즌 QP 를 OSQP 로 풀며,
 Raibert 발판 계획과 베지에 스윙 궤적을 씁니다.
 
+## 어떻게 만들어졌나 — 두 단계
+
+경계는 커밋으로 남아 있습니다. 태그 `prototype`(`7444db2`, 2026-08-27
+"simulation 고도화 기준점")까지가 1단계, 그다음 커밋부터가 2단계입니다.
+
+1. **프로토타입** ([Convex-MPC](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC)) —
+   논문을 참고 코드 없이 처음부터 직접 구현했습니다. 단일 강체 동역학, QP 정식화,
+   좌표계 처리, MuJoCo 연동까지 혼자 작성했습니다. SRB 플랜트에서는 trot/bound/gallop
+   세 보행이 모두 동작했고, MuJoCo 에서는 gallop 이 뒷발 미끄러짐으로 무너졌습니다
+   (커밋 `04c4690`). 2단계 이후로는 이 미끄러짐이 관측되지 않았지만, 어느 수정이
+   해결했는지는 원인 미확인입니다([`architecture.md`](architecture.md) "마찰뿔 대각 미끄러짐").
+2. **하드닝** — 계측과 테스트를 붙이며 결함 13 개를 찾아 고치고, 패키지 구조·CI·문서로
+   정리했습니다. Claude Code 와 페어 프로그래밍으로 진행했고, 결함을 찾고 무엇을 어떻게
+   고칠지 판단한 것은 제 몫, 구현 반복은 Claude Code 로 가속했습니다.
+
+빠른 시작:
+
+```
+git clone https://github.com/Howard-Ryu-Brooklyn/convex-mpc-quadruped.git
+cd convex-mpc-quadruped
+python -m venv .venv && source .venv/bin/activate    # Python 3.11+
+make install
+```
+
 ## 왜 플랜트가 두 개인가
 
 **둘은 다른 질문에 답합니다.**
