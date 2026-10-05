@@ -64,7 +64,7 @@ as boundaries.
 
 ```bash
 git clone https://github.com/Howard-Ryu-Brooklyn/convex-mpc-quadruped.git
-cd Convex-MPC
+cd convex-mpc-quadruped
 python -m venv .venv && source .venv/bin/activate    # Python 3.11+
 make install                                          # pip install -e ".[mujoco,notebook,dev]"
 
