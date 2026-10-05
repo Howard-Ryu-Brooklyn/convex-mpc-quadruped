@@ -10,11 +10,15 @@
   <sub>Trotting at 1 m/s in MuJoCo. The same controller also drives the analytic plant — <code>make run S=G_trot P=both</code> puts the two side by side.</sub>
 </p>
 
-이 리포지토리는 두 단계로 만들어졌습니다.
+이 리포지토리는 두 단계로 만들어졌습니다. 경계는 커밋으로 남아 있습니다 — 태그 `prototype`
+(`7444db2`, 2026-08-27 "simulation 고도화 기준점")까지가 1단계, 그다음 커밋부터가 2단계입니다.
 
 1. **[Convex-MPC](https://github.com/Howard-Ryu-Brooklyn/Convex-MPC)** — MIT Cheetah 3 Convex MPC 논문을
    참고 코드 없이 처음부터 직접 구현한 프로토타입입니다. 단일 강체 동역학 모델링, QP 정식화, 좌표계 처리,
-   MuJoCo 연동까지 전부 혼자 작성했고 trot/gallop/bound 보행이 여기서 처음 성공했습니다.
+   MuJoCo 연동까지 전부 혼자 작성했습니다. 해석(SRB) 플랜트에서는 trot/bound/gallop 세 보행이 모두
+   동작했고, MuJoCo 에서는 gallop 이 뒷발 미끄러짐으로 무너졌습니다(커밋 `04c4690`). 2단계 이후로는
+   이 미끄러짐이 관측되지 않았지만, 어느 수정이 해결했는지는 원인 미확인입니다
+   ([`docs/architecture.md`](docs/architecture.md) "마찰뿔 대각 미끄러짐").
 2. **이 리포지토리** — 위 프로토타입에 계측과 테스트를 추가하는 과정에서 열세 가지 결함을 발견했고, 이를
    고치고 패키지 구조·CI·문서로 정리하는 하드닝 작업을 Claude Code와 페어 프로그래밍으로 진행했습니다.
    결함을 찾아내고 무엇을 어떻게 고칠지 판단한 건 제 몫이었고, 구현 반복은 Claude Code로 가속했습니다.
