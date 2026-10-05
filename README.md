@@ -153,8 +153,12 @@ Anything can also be overridden from the command line without touching the file:
 python scripts/run_sim.py --gait bounding --vx 2.0 --duration 2 --plant both
 ```
 
-The aggressive gaits (`G_bound`, `G_gallop`) are **expected to fall over**. That is
-the experiment: finding where a linearized MPC stops holding.
+The aggressive gaits (`G_bound`, `G_gallop`) were expected to fall over. Measured
+(2026-10), they do not: both complete their 3 s runs on both plants (on MuJoCo,
+divergence means roll or pitch beyond 60°). They are not clean, though — on MuJoCo
+the swing legs command up to 514 N·m (bound) and 718 N·m (gallop) against a
+250 N·m actuator limit, so the engine is clipping torque. That is the experiment:
+finding where a linearized MPC stops holding.
 
 ## Documentation
 

@@ -62,8 +62,11 @@ REGRESSION: dict[str, ScenarioSpec] = {
 #: 보행 모드별 관찰용. 속도는 각 게이트의 duty/주기에 맞춰 골랐다 —
 #: galloping 을 0.5 m/s 로 돌리는 것은 물리적으로 말이 안 된다(체공 구간이
 #: 있는데 전진하지 않으면 그냥 제자리 도약이다).
-#: 공격적인 게이트는 **넘어질 것으로 예상한다.** 그것이 이 실험의 내용이다 —
-#: 선형화된 MPC 가 어느 게이트까지 버티는가.
+#: 공격적인 게이트는 넘어질 것으로 예상했지만, 2026-10 측정에서 G_bound /
+#: G_gallop 은 두 플랜트 모두 3 초를 완주했다(MuJoCo 발산 판정: 롤·피치 60°).
+#: 대신 MuJoCo 에서 스윙 토크 지령이 한계 250 N·m 를 넘는다(bound 514,
+#: gallop 718 — 엔진이 잘라내고 있다). 선형화된 MPC 가 어느 게이트까지
+#: 버티는가가 이 실험의 내용이다.
 GALLERY: dict[str, ScenarioSpec] = {
     "G_stand":       ScenarioSpec(gait_name="standing",    v_des_x=0.0, omega_z_deg_s=0.0,  duration_s=2.0),
     "G_trot":        ScenarioSpec(gait_name="trotting",    v_des_x=1.0, omega_z_deg_s=0.0,  duration_s=4.0),
